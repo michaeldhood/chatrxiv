@@ -34,6 +34,43 @@
         text-decoration: underline;
     }
     
+    .chat-header-actions {
+        display: flex;
+        gap: 12px;
+        margin-top: 16px;
+    }
+    
+    .copy-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 16px;
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--text-primary);
+        background: var(--bg-tertiary);
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        cursor: pointer;
+        transition: all 0.15s;
+    }
+    
+    .copy-btn:hover {
+        background: var(--bg-hover);
+        border-color: var(--accent-blue);
+    }
+    
+    .copy-btn.copied {
+        background: rgba(78, 201, 176, 0.15);
+        border-color: var(--accent-green);
+        color: var(--accent-green);
+    }
+    
+    .copy-btn svg {
+        width: 16px;
+        height: 16px;
+    }
+    
     .files-section {
         margin: 20px 24px;
         padding: 16px;
@@ -241,6 +278,14 @@
             <span>Workspace: {{ chat.workspace_path }}</span>
             {% endif %}
         </div>
+        <div class="chat-header-actions">
+            <button class="copy-btn" onclick="copyChatToClipboard()" id="copyBtn">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+                <span>Copy Chat</span>
+            </button>
+        </div>
     </div>
     
     {% if chat.tags %}
@@ -328,6 +373,58 @@
         const content = element.nextElementSibling;
         element.classList.toggle('expanded');
         content.classList.toggle('expanded');
+    }
+    
+    // Chat data for copy functionality (only regular messages, no tool calls or thinking)
+    const chatData = {
+        title: {{ (chat.title or 'Untitled Chat') | tojson }},
+        messages: [
+            {% for item in chat.processed_messages %}
+                {% if item.type == 'message' and item.data.message_type not in ['tool_call', 'thinking', 'empty'] %}
+                {
+                    role: {{ item.data.role | tojson }},
+                    text: {{ (item.data.text or item.data.rich_text or '') | tojson }}
+                },
+                {% endif %}
+            {% endfor %}
+        ]
+    };
+    
+    function copyChatToClipboard() {
+        // Build the chat text in a clean format
+        let chatText = '';
+        
+        for (const msg of chatData.messages) {
+            if (!msg.text || msg.text.trim() === '') continue;
+            
+            const roleLabel = msg.role === 'user' ? 'User' : 'Assistant';
+            chatText += `**${roleLabel}**\n\n${msg.text}\n\n---\n\n`;
+        }
+        
+        // Remove trailing separator
+        chatText = chatText.replace(/\n\n---\n\n$/, '\n');
+        
+        // Copy to clipboard
+        navigator.clipboard.writeText(chatText).then(() => {
+            const btn = document.getElementById('copyBtn');
+            const originalHTML = btn.innerHTML;
+            
+            btn.classList.add('copied');
+            btn.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                </svg>
+                <span>Copied!</span>
+            `;
+            
+            setTimeout(() => {
+                btn.classList.remove('copied');
+                btn.innerHTML = originalHTML;
+            }, 2000);
+        }).catch(err => {
+            console.error('Failed to copy:', err);
+            alert('Failed to copy to clipboard');
+        });
     }
 </script>
 {% endblock %}
