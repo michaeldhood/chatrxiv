@@ -33,3 +33,8 @@ examples/
 # dlt secrets and pipeline state
 .dlt/secrets.toml
 .dlt/pipelines/
+
+# Test coverage files
+.coverage
+coverage.json
+htmlcov/
