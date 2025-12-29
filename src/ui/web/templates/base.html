@@ -552,6 +552,7 @@
             <nav>
                 <a href="{{ url_for('index') }}">All Chats</a>
                 <a href="{{ url_for('database_view') }}">Database View</a>
+                <a href="{{ url_for('canvas_list') }}">📐 Canvases</a>
             </nav>
             <form class="search-form" action="{{ url_for('search') }}" method="get" id="search-form">
                 <input type="text" name="q" id="search-input" placeholder="Search chats... (⌘K)" value="{{ request.args.get('q', '') }}" autocomplete="off">

@@ -1,0 +1,1333 @@
+{% extends "base.html" %}
+
+{% block title %}{{ canvas.name }} - Canvas{% endblock %}
+
+{% block extra_head %}
+<style>
+    /* Override container for full-screen canvas */
+    body {
+        overflow: hidden;
+    }
+    
+    .container {
+        max-width: none;
+        padding: 0;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+    }
+    
+    /* Canvas header toolbar */
+    .canvas-toolbar {
+        background: var(--bg-secondary);
+        border-bottom: 1px solid var(--border-color);
+        padding: 12px 20px;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        z-index: 100;
+        flex-shrink: 0;
+    }
+    
+    .canvas-toolbar .back-link {
+        color: var(--text-secondary);
+        text-decoration: none;
+        font-size: 14px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        transition: color 0.15s;
+    }
+    
+    .canvas-toolbar .back-link:hover {
+        color: var(--accent-blue);
+    }
+    
+    .canvas-name {
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--text-primary);
+        border: none;
+        background: transparent;
+        padding: 6px 10px;
+        border-radius: 6px;
+        min-width: 200px;
+    }
+    
+    .canvas-name:hover {
+        background: var(--bg-tertiary);
+    }
+    
+    .canvas-name:focus {
+        outline: none;
+        background: var(--bg-tertiary);
+        box-shadow: 0 0 0 2px rgba(86, 156, 214, 0.3);
+    }
+    
+    .toolbar-controls {
+        display: flex;
+        gap: 8px;
+        margin-left: auto;
+    }
+    
+    .toolbar-btn {
+        padding: 8px 14px;
+        background: var(--bg-tertiary);
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        color: var(--text-secondary);
+        font-size: 13px;
+        cursor: pointer;
+        transition: all 0.15s;
+        font-family: inherit;
+    }
+    
+    .toolbar-btn:hover {
+        background: var(--bg-hover);
+        color: var(--text-primary);
+    }
+    
+    .toolbar-btn.active {
+        background: var(--accent-blue);
+        border-color: var(--accent-blue);
+        color: white;
+    }
+    
+    .zoom-controls {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        background: var(--bg-tertiary);
+        padding: 4px;
+        border-radius: 6px;
+        border: 1px solid var(--border-color);
+    }
+    
+    .zoom-btn {
+        width: 28px;
+        height: 28px;
+        background: transparent;
+        border: none;
+        color: var(--text-secondary);
+        cursor: pointer;
+        border-radius: 4px;
+        font-size: 16px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    .zoom-btn:hover {
+        background: var(--bg-hover);
+        color: var(--text-primary);
+    }
+    
+    .zoom-level {
+        font-size: 12px;
+        color: var(--text-secondary);
+        min-width: 40px;
+        text-align: center;
+    }
+    
+    .save-indicator {
+        font-size: 12px;
+        color: var(--text-muted);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+    
+    .save-indicator.saving {
+        color: var(--accent-orange);
+    }
+    
+    .save-indicator.saved {
+        color: var(--accent-green);
+    }
+    
+    /* Main canvas area */
+    .canvas-wrapper {
+        flex: 1;
+        display: flex;
+        overflow: hidden;
+        position: relative;
+    }
+    
+    /* Sidebar with available chats */
+    .canvas-sidebar {
+        width: 320px;
+        background: var(--bg-secondary);
+        border-right: 1px solid var(--border-color);
+        display: flex;
+        flex-direction: column;
+        flex-shrink: 0;
+        z-index: 50;
+    }
+    
+    .canvas-sidebar.collapsed {
+        width: 0;
+        overflow: hidden;
+    }
+    
+    .sidebar-header {
+        padding: 16px;
+        border-bottom: 1px solid var(--border-color);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+    
+    .sidebar-header h3 {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+    
+    .sidebar-header .close-btn {
+        background: transparent;
+        border: none;
+        color: var(--text-muted);
+        cursor: pointer;
+        font-size: 18px;
+        padding: 4px;
+    }
+    
+    .sidebar-search {
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--border-color);
+    }
+    
+    .sidebar-search input {
+        width: 100%;
+        padding: 8px 12px;
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        background: var(--bg-tertiary);
+        color: var(--text-primary);
+        font-size: 13px;
+    }
+    
+    .sidebar-search input:focus {
+        outline: none;
+        border-color: var(--accent-blue);
+    }
+    
+    .sidebar-chats {
+        flex: 1;
+        overflow-y: auto;
+        padding: 8px;
+    }
+    
+    .sidebar-chat-item {
+        padding: 12px;
+        border-radius: 8px;
+        margin-bottom: 6px;
+        cursor: grab;
+        transition: all 0.15s;
+        border: 1px solid transparent;
+    }
+    
+    .sidebar-chat-item:hover {
+        background: var(--bg-tertiary);
+    }
+    
+    .sidebar-chat-item.on-canvas {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+    
+    .sidebar-chat-item.dragging {
+        opacity: 0.5;
+        cursor: grabbing;
+    }
+    
+    .sidebar-chat-item .title {
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--text-primary);
+        margin-bottom: 4px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    
+    .sidebar-chat-item .meta {
+        font-size: 11px;
+        color: var(--text-muted);
+        display: flex;
+        gap: 8px;
+    }
+    
+    .sidebar-chat-item .badge {
+        font-size: 9px;
+        padding: 2px 6px;
+    }
+    
+    /* Infinite canvas */
+    .infinite-canvas {
+        flex: 1;
+        position: relative;
+        overflow: hidden;
+        background: 
+            radial-gradient(circle, var(--border-color) 1px, transparent 1px);
+        background-size: 30px 30px;
+        background-position: center center;
+        cursor: grab;
+    }
+    
+    .infinite-canvas.panning {
+        cursor: grabbing;
+    }
+    
+    .infinite-canvas.dragging-node {
+        cursor: grabbing;
+    }
+    
+    .canvas-content {
+        position: absolute;
+        transform-origin: 0 0;
+        width: 100%;
+        height: 100%;
+    }
+    
+    /* Chat card on canvas */
+    .canvas-chat-card {
+        position: absolute;
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+        transition: box-shadow 0.15s;
+        display: flex;
+        flex-direction: column;
+    }
+    
+    .canvas-chat-card:hover {
+        border-color: var(--accent-blue);
+    }
+    
+    .canvas-chat-card.selected {
+        border-color: var(--accent-blue);
+        box-shadow: 0 0 0 2px rgba(86, 156, 214, 0.3), 0 4px 16px rgba(0, 0, 0, 0.3);
+    }
+    
+    .canvas-chat-card.dragging {
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        z-index: 1000 !important;
+    }
+    
+    .card-header {
+        padding: 12px 16px;
+        background: var(--bg-tertiary);
+        border-bottom: 1px solid var(--border-color);
+        cursor: grab;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    
+    .card-header:active {
+        cursor: grabbing;
+    }
+    
+    .card-header .card-title {
+        flex: 1;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-primary);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    
+    .card-header .card-actions {
+        display: flex;
+        gap: 4px;
+    }
+    
+    .card-header .card-action-btn {
+        width: 24px;
+        height: 24px;
+        background: transparent;
+        border: none;
+        color: var(--text-muted);
+        cursor: pointer;
+        border-radius: 4px;
+        font-size: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    .card-header .card-action-btn:hover {
+        background: var(--bg-hover);
+        color: var(--text-primary);
+    }
+    
+    .card-content {
+        flex: 1;
+        padding: 12px 16px;
+        overflow-y: auto;
+        font-size: 13px;
+        line-height: 1.5;
+        color: var(--text-secondary);
+    }
+    
+    .card-content.collapsed {
+        display: none;
+    }
+    
+    .card-meta {
+        padding: 8px 16px;
+        border-top: 1px solid var(--border-color);
+        font-size: 11px;
+        color: var(--text-muted);
+        display: flex;
+        gap: 12px;
+        align-items: center;
+    }
+    
+    .card-preview-message {
+        padding: 8px 12px;
+        background: var(--bg-tertiary);
+        border-radius: 6px;
+        margin-bottom: 8px;
+    }
+    
+    .card-preview-message:last-child {
+        margin-bottom: 0;
+    }
+    
+    .card-preview-message .role {
+        font-size: 10px;
+        font-weight: 600;
+        text-transform: uppercase;
+        margin-bottom: 4px;
+    }
+    
+    .card-preview-message .role.user {
+        color: var(--accent-blue);
+    }
+    
+    .card-preview-message .role.assistant {
+        color: var(--accent-green);
+    }
+    
+    .card-preview-message .text {
+        font-size: 12px;
+        color: var(--text-secondary);
+    }
+    
+    .card-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        margin-top: 8px;
+    }
+    
+    .card-tag {
+        font-size: 10px;
+        padding: 2px 6px;
+        border-radius: 8px;
+        background: rgba(197, 134, 192, 0.15);
+        color: var(--accent-purple);
+    }
+    
+    .card-footer {
+        padding: 10px 16px;
+        border-top: 1px solid var(--border-color);
+        background: var(--bg-tertiary);
+    }
+    
+    .card-footer a {
+        font-size: 12px;
+        color: var(--accent-blue);
+        text-decoration: none;
+    }
+    
+    .card-footer a:hover {
+        text-decoration: underline;
+    }
+    
+    /* Resize handle */
+    .resize-handle {
+        position: absolute;
+        bottom: 0;
+        right: 0;
+        width: 16px;
+        height: 16px;
+        cursor: se-resize;
+        opacity: 0;
+        transition: opacity 0.15s;
+    }
+    
+    .canvas-chat-card:hover .resize-handle {
+        opacity: 1;
+    }
+    
+    .resize-handle::before {
+        content: '';
+        position: absolute;
+        bottom: 4px;
+        right: 4px;
+        width: 8px;
+        height: 8px;
+        border-right: 2px solid var(--text-muted);
+        border-bottom: 2px solid var(--text-muted);
+    }
+    
+    /* Drop zone indicator */
+    .drop-indicator {
+        position: fixed;
+        pointer-events: none;
+        background: rgba(86, 156, 214, 0.1);
+        border: 2px dashed var(--accent-blue);
+        border-radius: 12px;
+        z-index: 999;
+        display: none;
+    }
+    
+    .drop-indicator.active {
+        display: block;
+    }
+    
+    /* Delete zone */
+    .delete-zone {
+        position: fixed;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 16px 32px;
+        background: rgba(255, 100, 100, 0.1);
+        border: 2px dashed rgba(255, 100, 100, 0.5);
+        border-radius: 12px;
+        color: #ff6464;
+        font-size: 14px;
+        font-weight: 500;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.2s;
+        z-index: 1000;
+    }
+    
+    .delete-zone.active {
+        opacity: 1;
+        pointer-events: auto;
+    }
+    
+    .delete-zone.hovering {
+        background: rgba(255, 100, 100, 0.2);
+        border-color: #ff6464;
+    }
+    
+    /* Welcome message for empty canvas */
+    .canvas-empty-state {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        text-align: center;
+        color: var(--text-muted);
+        pointer-events: none;
+    }
+    
+    .canvas-empty-state h3 {
+        font-size: 20px;
+        color: var(--text-secondary);
+        margin-bottom: 8px;
+    }
+    
+    .canvas-empty-state p {
+        font-size: 14px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Canvas Toolbar -->
+<div class="canvas-toolbar">
+    <a href="{{ url_for('canvas_list') }}" class="back-link">
+        ← Canvases
+    </a>
+    <input type="text" class="canvas-name" id="canvas-name" value="{{ canvas.name }}" 
+           onchange="updateCanvasName(this.value)">
+    
+    <div class="zoom-controls">
+        <button class="zoom-btn" onclick="zoomOut()">−</button>
+        <span class="zoom-level" id="zoom-level">100%</span>
+        <button class="zoom-btn" onclick="zoomIn()">+</button>
+        <button class="zoom-btn" onclick="resetZoom()" title="Reset zoom">⌂</button>
+    </div>
+    
+    <div class="toolbar-controls">
+        <button class="toolbar-btn" id="toggle-sidebar" onclick="toggleSidebar()">
+            📋 Chats
+        </button>
+        <button class="toolbar-btn" onclick="fitToContent()">Fit View</button>
+    </div>
+    
+    <div class="save-indicator" id="save-indicator">
+        <span>✓ Saved</span>
+    </div>
+</div>
+
+<div class="canvas-wrapper">
+    <!-- Sidebar with available chats -->
+    <div class="canvas-sidebar" id="canvas-sidebar">
+        <div class="sidebar-header">
+            <h3>Available Chats</h3>
+            <button class="close-btn" onclick="toggleSidebar()">×</button>
+        </div>
+        <div class="sidebar-search">
+            <input type="text" id="sidebar-search" placeholder="Filter chats..." oninput="filterSidebarChats(this.value)">
+        </div>
+        <div class="sidebar-chats" id="sidebar-chats">
+            {% for chat in available_chats %}
+            <div class="sidebar-chat-item{% if chat.on_canvas %} on-canvas{% endif %}" 
+                 data-chat-id="{{ chat.id }}"
+                 data-title="{{ chat.title or 'Untitled Chat' }}"
+                 draggable="{{ 'false' if chat.on_canvas else 'true' }}">
+                <div class="title">{{ chat.title or 'Untitled Chat' }}</div>
+                <div class="meta">
+                    <span class="badge {{ chat.mode }}">{{ chat.mode }}</span>
+                    <span>{{ chat.messages_count or 0 }} msgs</span>
+                    <span>{{ chat.created_at[:10] if chat.created_at else '' }}</span>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    
+    <!-- Infinite Canvas -->
+    <div class="infinite-canvas" id="infinite-canvas">
+        <div class="canvas-content" id="canvas-content">
+            {% if not canvas.nodes %}
+            <div class="canvas-empty-state" id="empty-state">
+                <h3>Empty Canvas</h3>
+                <p>Drag chats from the sidebar to add them here</p>
+            </div>
+            {% endif %}
+            
+            <!-- Chat cards will be rendered here -->
+        </div>
+    </div>
+    
+    <!-- Delete zone shown when dragging -->
+    <div class="delete-zone" id="delete-zone">
+        🗑️ Drop here to remove
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+// Canvas state
+const canvasId = {{ canvas.id }};
+let viewport = {{ canvas.viewport | tojson }};
+let nodes = {{ canvas.nodes | tojson }};
+
+// Canvas elements
+const canvasEl = document.getElementById('infinite-canvas');
+const contentEl = document.getElementById('canvas-content');
+const sidebarEl = document.getElementById('canvas-sidebar');
+const deleteZone = document.getElementById('delete-zone');
+const emptyState = document.getElementById('empty-state');
+
+// Interaction state
+let isPanning = false;
+let panStart = { x: 0, y: 0 };
+let viewportStart = { x: 0, y: 0 };
+
+let isDraggingNode = false;
+let draggedNode = null;
+let dragOffset = { x: 0, y: 0 };
+
+let isResizing = false;
+let resizeNode = null;
+let resizeStart = { width: 0, height: 0, x: 0, y: 0 };
+
+let selectedNode = null;
+
+// Debounced save function
+let saveTimeout = null;
+function scheduleSave() {
+    if (saveTimeout) clearTimeout(saveTimeout);
+    showSaveIndicator('saving');
+    saveTimeout = setTimeout(saveCanvas, 500);
+}
+
+function showSaveIndicator(state) {
+    const indicator = document.getElementById('save-indicator');
+    indicator.className = 'save-indicator ' + state;
+    indicator.innerHTML = state === 'saving' ? '<span>Saving...</span>' : '<span>✓ Saved</span>';
+}
+
+async function saveCanvas() {
+    try {
+        // Save viewport
+        await fetch(`/api/canvas/${canvasId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ viewport })
+        });
+        showSaveIndicator('saved');
+    } catch (err) {
+        console.error('Save failed:', err);
+    }
+}
+
+// Initialize canvas
+function initCanvas() {
+    updateTransform();
+    renderNodes();
+    setupEventListeners();
+}
+
+function updateTransform() {
+    const { x, y, zoom } = viewport;
+    contentEl.style.transform = `translate(${x}px, ${y}px) scale(${zoom})`;
+    document.getElementById('zoom-level').textContent = Math.round(zoom * 100) + '%';
+}
+
+function renderNodes() {
+    // Clear existing cards (but not empty state)
+    contentEl.querySelectorAll('.canvas-chat-card').forEach(el => el.remove());
+    
+    // Hide/show empty state
+    if (emptyState) {
+        emptyState.style.display = nodes.length === 0 ? 'block' : 'none';
+    }
+    
+    nodes.forEach(node => {
+        const card = createChatCard(node);
+        contentEl.appendChild(card);
+    });
+    
+    updateSidebarState();
+}
+
+function createChatCard(node) {
+    const card = document.createElement('div');
+    card.className = 'canvas-chat-card';
+    card.dataset.nodeId = node.node_id;
+    card.dataset.chatId = node.chat_id;
+    card.style.left = node.position_x + 'px';
+    card.style.top = node.position_y + 'px';
+    card.style.width = node.width + 'px';
+    card.style.height = node.height + 'px';
+    card.style.zIndex = node.z_index;
+    
+    const modeClass = node.chat_mode || 'chat';
+    
+    card.innerHTML = `
+        <div class="card-header">
+            <span class="badge ${modeClass}">${modeClass}</span>
+            <span class="card-title">${escapeHtml(node.chat_title)}</span>
+            <div class="card-actions">
+                <button class="card-action-btn" onclick="toggleCardCollapse(${node.node_id})" title="Collapse">
+                    ${node.collapsed ? '▼' : '▲'}
+                </button>
+                <button class="card-action-btn" onclick="openChat(${node.chat_id})" title="Open chat">
+                    ↗
+                </button>
+                <button class="card-action-btn" onclick="removeNode(${node.node_id})" title="Remove">
+                    ×
+                </button>
+            </div>
+        </div>
+        <div class="card-content${node.collapsed ? ' collapsed' : ''}" id="card-content-${node.node_id}">
+            <div class="card-preview" id="card-preview-${node.node_id}">
+                Loading...
+            </div>
+        </div>
+        <div class="card-meta">
+            <span>${node.chat_messages_count || 0} messages</span>
+            <span>${node.chat_created_at ? node.chat_created_at.substring(0, 10) : ''}</span>
+        </div>
+        <div class="resize-handle" data-node-id="${node.node_id}"></div>
+    `;
+    
+    // Load preview
+    loadChatPreview(node.chat_id, node.node_id);
+    
+    return card;
+}
+
+async function loadChatPreview(chatId, nodeId) {
+    try {
+        const response = await fetch(`/api/chat/${chatId}/preview`);
+        const preview = await response.json();
+        
+        const previewEl = document.getElementById(`card-preview-${nodeId}`);
+        if (!previewEl) return;
+        
+        let html = '';
+        
+        if (preview.preview_messages && preview.preview_messages.length > 0) {
+            preview.preview_messages.forEach(msg => {
+                html += `
+                    <div class="card-preview-message">
+                        <div class="role ${msg.role}">${msg.role}</div>
+                        <div class="text">${escapeHtml(msg.text)}</div>
+                    </div>
+                `;
+            });
+        } else {
+            html = '<div style="color: var(--text-muted); font-size: 12px;">No messages</div>';
+        }
+        
+        if (preview.tags && preview.tags.length > 0) {
+            html += '<div class="card-tags">';
+            preview.tags.slice(0, 5).forEach(tag => {
+                html += `<span class="card-tag">${escapeHtml(tag)}</span>`;
+            });
+            if (preview.tags.length > 5) {
+                html += `<span class="card-tag">+${preview.tags.length - 5}</span>`;
+            }
+            html += '</div>';
+        }
+        
+        previewEl.innerHTML = html;
+    } catch (err) {
+        console.error('Failed to load preview:', err);
+    }
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text || '';
+    return div.innerHTML;
+}
+
+function updateSidebarState() {
+    const onCanvas = new Set(nodes.map(n => n.chat_id));
+    document.querySelectorAll('.sidebar-chat-item').forEach(el => {
+        const chatId = parseInt(el.dataset.chatId);
+        if (onCanvas.has(chatId)) {
+            el.classList.add('on-canvas');
+            el.draggable = false;
+        } else {
+            el.classList.remove('on-canvas');
+            el.draggable = true;
+        }
+    });
+}
+
+// Event listeners
+function setupEventListeners() {
+    // Pan with mouse drag on canvas
+    canvasEl.addEventListener('mousedown', onCanvasMouseDown);
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+    
+    // Zoom with wheel
+    canvasEl.addEventListener('wheel', onWheel, { passive: false });
+    
+    // Node dragging
+    contentEl.addEventListener('mousedown', onNodeMouseDown);
+    
+    // Sidebar drag and drop
+    setupDragAndDrop();
+    
+    // Keyboard shortcuts
+    window.addEventListener('keydown', onKeyDown);
+}
+
+function onCanvasMouseDown(e) {
+    // Only pan if clicking on canvas background
+    if (e.target === canvasEl || e.target === contentEl || e.target.id === 'empty-state') {
+        isPanning = true;
+        panStart = { x: e.clientX, y: e.clientY };
+        viewportStart = { x: viewport.x, y: viewport.y };
+        canvasEl.classList.add('panning');
+        e.preventDefault();
+    }
+}
+
+function onNodeMouseDown(e) {
+    const card = e.target.closest('.canvas-chat-card');
+    const header = e.target.closest('.card-header');
+    const resizeHandle = e.target.closest('.resize-handle');
+    
+    if (resizeHandle) {
+        // Start resize
+        const nodeId = parseInt(resizeHandle.dataset.nodeId);
+        const node = nodes.find(n => n.node_id === nodeId);
+        if (node) {
+            isResizing = true;
+            resizeNode = node;
+            resizeStart = {
+                width: node.width,
+                height: node.height,
+                x: e.clientX,
+                y: e.clientY
+            };
+            e.preventDefault();
+            e.stopPropagation();
+        }
+    } else if (header && card) {
+        // Start dragging node
+        const nodeId = parseInt(card.dataset.nodeId);
+        const node = nodes.find(n => n.node_id === nodeId);
+        if (node) {
+            isDraggingNode = true;
+            draggedNode = node;
+            card.classList.add('dragging');
+            canvasEl.classList.add('dragging-node');
+            deleteZone.classList.add('active');
+            
+            // Bring to front
+            bringToFront(nodeId);
+            
+            // Calculate offset
+            const rect = card.getBoundingClientRect();
+            dragOffset = {
+                x: e.clientX - rect.left,
+                y: e.clientY - rect.top
+            };
+            
+            e.preventDefault();
+        }
+    }
+    
+    // Select node on click
+    if (card) {
+        selectNode(parseInt(card.dataset.nodeId));
+    } else if (e.target === canvasEl || e.target === contentEl) {
+        selectNode(null);
+    }
+}
+
+function onMouseMove(e) {
+    if (isPanning) {
+        const dx = e.clientX - panStart.x;
+        const dy = e.clientY - panStart.y;
+        viewport.x = viewportStart.x + dx;
+        viewport.y = viewportStart.y + dy;
+        updateTransform();
+    } else if (isDraggingNode && draggedNode) {
+        // Get position in canvas space
+        const rect = canvasEl.getBoundingClientRect();
+        const x = (e.clientX - rect.left - viewport.x - dragOffset.x) / viewport.zoom;
+        const y = (e.clientY - rect.top - viewport.y - dragOffset.y) / viewport.zoom;
+        
+        // Update node position
+        draggedNode.position_x = x;
+        draggedNode.position_y = y;
+        
+        const card = contentEl.querySelector(`[data-node-id="${draggedNode.node_id}"]`);
+        if (card) {
+            card.style.left = x + 'px';
+            card.style.top = y + 'px';
+        }
+        
+        // Check if over delete zone
+        const deleteRect = deleteZone.getBoundingClientRect();
+        if (e.clientX >= deleteRect.left && e.clientX <= deleteRect.right &&
+            e.clientY >= deleteRect.top && e.clientY <= deleteRect.bottom) {
+            deleteZone.classList.add('hovering');
+        } else {
+            deleteZone.classList.remove('hovering');
+        }
+    } else if (isResizing && resizeNode) {
+        const dx = e.clientX - resizeStart.x;
+        const dy = e.clientY - resizeStart.y;
+        
+        const newWidth = Math.max(250, resizeStart.width + dx / viewport.zoom);
+        const newHeight = Math.max(150, resizeStart.height + dy / viewport.zoom);
+        
+        resizeNode.width = newWidth;
+        resizeNode.height = newHeight;
+        
+        const card = contentEl.querySelector(`[data-node-id="${resizeNode.node_id}"]`);
+        if (card) {
+            card.style.width = newWidth + 'px';
+            card.style.height = newHeight + 'px';
+        }
+    }
+}
+
+function onMouseUp(e) {
+    if (isPanning) {
+        isPanning = false;
+        canvasEl.classList.remove('panning');
+        scheduleSave();
+    }
+    
+    if (isDraggingNode && draggedNode) {
+        const card = contentEl.querySelector(`[data-node-id="${draggedNode.node_id}"]`);
+        if (card) {
+            card.classList.remove('dragging');
+        }
+        
+        // Check if dropped on delete zone
+        const deleteRect = deleteZone.getBoundingClientRect();
+        if (e.clientX >= deleteRect.left && e.clientX <= deleteRect.right &&
+            e.clientY >= deleteRect.top && e.clientY <= deleteRect.bottom) {
+            removeNode(draggedNode.node_id);
+        } else {
+            // Save position
+            saveNodePosition(draggedNode.node_id, draggedNode.position_x, draggedNode.position_y);
+        }
+        
+        isDraggingNode = false;
+        draggedNode = null;
+        canvasEl.classList.remove('dragging-node');
+        deleteZone.classList.remove('active', 'hovering');
+    }
+    
+    if (isResizing && resizeNode) {
+        saveNodeSize(resizeNode.node_id, resizeNode.width, resizeNode.height);
+        isResizing = false;
+        resizeNode = null;
+    }
+}
+
+function onWheel(e) {
+    e.preventDefault();
+    
+    const rect = canvasEl.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    
+    // Zoom around mouse position
+    const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
+    const newZoom = Math.min(3, Math.max(0.1, viewport.zoom * zoomFactor));
+    
+    // Adjust pan to zoom around mouse
+    const scale = newZoom / viewport.zoom;
+    viewport.x = mouseX - (mouseX - viewport.x) * scale;
+    viewport.y = mouseY - (mouseY - viewport.y) * scale;
+    viewport.zoom = newZoom;
+    
+    updateTransform();
+    scheduleSave();
+}
+
+function onKeyDown(e) {
+    // Delete selected node
+    if ((e.key === 'Delete' || e.key === 'Backspace') && selectedNode) {
+        removeNode(selectedNode.node_id);
+        e.preventDefault();
+    }
+    
+    // Escape to deselect
+    if (e.key === 'Escape') {
+        selectNode(null);
+    }
+}
+
+// Drag and drop from sidebar
+function setupDragAndDrop() {
+    const sidebar = document.getElementById('sidebar-chats');
+    
+    sidebar.addEventListener('dragstart', (e) => {
+        const item = e.target.closest('.sidebar-chat-item');
+        if (item && !item.classList.contains('on-canvas')) {
+            e.dataTransfer.setData('application/json', JSON.stringify({
+                chatId: parseInt(item.dataset.chatId),
+                title: item.dataset.title
+            }));
+            item.classList.add('dragging');
+        }
+    });
+    
+    sidebar.addEventListener('dragend', (e) => {
+        const item = e.target.closest('.sidebar-chat-item');
+        if (item) {
+            item.classList.remove('dragging');
+        }
+    });
+    
+    canvasEl.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+    });
+    
+    canvasEl.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        
+        try {
+            const data = JSON.parse(e.dataTransfer.getData('application/json'));
+            if (data.chatId) {
+                // Calculate drop position in canvas space
+                const rect = canvasEl.getBoundingClientRect();
+                const x = (e.clientX - rect.left - viewport.x) / viewport.zoom - 200; // Center card
+                const y = (e.clientY - rect.top - viewport.y) / viewport.zoom - 50;
+                
+                await addChatToCanvas(data.chatId, x, y);
+            }
+        } catch (err) {
+            console.error('Drop error:', err);
+        }
+    });
+}
+
+// Node operations
+function selectNode(nodeId) {
+    // Deselect previous
+    contentEl.querySelectorAll('.canvas-chat-card.selected').forEach(el => {
+        el.classList.remove('selected');
+    });
+    
+    if (nodeId) {
+        selectedNode = nodes.find(n => n.node_id === nodeId);
+        const card = contentEl.querySelector(`[data-node-id="${nodeId}"]`);
+        if (card) {
+            card.classList.add('selected');
+        }
+    } else {
+        selectedNode = null;
+    }
+}
+
+async function addChatToCanvas(chatId, x, y) {
+    try {
+        showSaveIndicator('saving');
+        const response = await fetch(`/api/canvas/${canvasId}/nodes`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                chat_id: chatId,
+                position_x: x,
+                position_y: y,
+                width: 400,
+                height: 300
+            })
+        });
+        
+        if (response.ok) {
+            const result = await response.json();
+            // Add to local nodes
+            nodes.push({
+                node_id: result.node_id,
+                chat_id: result.chat_id,
+                position_x: result.position_x,
+                position_y: result.position_y,
+                width: result.width,
+                height: result.height,
+                z_index: nodes.length,
+                collapsed: false,
+                chat_title: result.chat?.title || 'Untitled Chat',
+                chat_mode: result.chat?.mode || 'chat',
+                chat_created_at: result.chat?.created_at,
+                chat_messages_count: result.chat?.messages_count || 0,
+            });
+            renderNodes();
+            showSaveIndicator('saved');
+        } else if (response.status === 409) {
+            // Already on canvas
+            console.log('Chat already on canvas');
+        }
+    } catch (err) {
+        console.error('Failed to add chat:', err);
+    }
+}
+
+async function removeNode(nodeId) {
+    try {
+        showSaveIndicator('saving');
+        const response = await fetch(`/api/canvas/node/${nodeId}`, {
+            method: 'DELETE'
+        });
+        
+        if (response.ok) {
+            nodes = nodes.filter(n => n.node_id !== nodeId);
+            renderNodes();
+            showSaveIndicator('saved');
+        }
+    } catch (err) {
+        console.error('Failed to remove node:', err);
+    }
+}
+
+async function saveNodePosition(nodeId, x, y) {
+    try {
+        showSaveIndicator('saving');
+        await fetch(`/api/canvas/node/${nodeId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ position_x: x, position_y: y })
+        });
+        showSaveIndicator('saved');
+    } catch (err) {
+        console.error('Failed to save position:', err);
+    }
+}
+
+async function saveNodeSize(nodeId, width, height) {
+    try {
+        showSaveIndicator('saving');
+        await fetch(`/api/canvas/node/${nodeId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ width, height })
+        });
+        showSaveIndicator('saved');
+    } catch (err) {
+        console.error('Failed to save size:', err);
+    }
+}
+
+async function bringToFront(nodeId) {
+    try {
+        await fetch(`/api/canvas/node/${nodeId}/bring-to-front`, {
+            method: 'POST'
+        });
+        
+        // Update local z-indices
+        const maxZ = Math.max(...nodes.map(n => n.z_index || 0));
+        const node = nodes.find(n => n.node_id === nodeId);
+        if (node) {
+            node.z_index = maxZ + 1;
+            const card = contentEl.querySelector(`[data-node-id="${nodeId}"]`);
+            if (card) {
+                card.style.zIndex = node.z_index;
+            }
+        }
+    } catch (err) {
+        console.error('Failed to bring to front:', err);
+    }
+}
+
+function toggleCardCollapse(nodeId) {
+    const node = nodes.find(n => n.node_id === nodeId);
+    if (node) {
+        node.collapsed = !node.collapsed;
+        
+        const content = document.getElementById(`card-content-${nodeId}`);
+        if (content) {
+            content.classList.toggle('collapsed', node.collapsed);
+        }
+        
+        // Update button
+        const card = contentEl.querySelector(`[data-node-id="${nodeId}"]`);
+        if (card) {
+            const btn = card.querySelector('.card-action-btn');
+            if (btn) {
+                btn.textContent = node.collapsed ? '▼' : '▲';
+            }
+        }
+        
+        // Save state
+        fetch(`/api/canvas/node/${nodeId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ collapsed: node.collapsed })
+        });
+    }
+}
+
+function openChat(chatId) {
+    window.open(`/chat/${chatId}`, '_blank');
+}
+
+// Toolbar functions
+async function updateCanvasName(name) {
+    try {
+        showSaveIndicator('saving');
+        await fetch(`/api/canvas/${canvasId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name })
+        });
+        showSaveIndicator('saved');
+    } catch (err) {
+        console.error('Failed to update name:', err);
+    }
+}
+
+function toggleSidebar() {
+    sidebarEl.classList.toggle('collapsed');
+    document.getElementById('toggle-sidebar').classList.toggle('active', !sidebarEl.classList.contains('collapsed'));
+}
+
+function filterSidebarChats(query) {
+    const q = query.toLowerCase();
+    document.querySelectorAll('.sidebar-chat-item').forEach(el => {
+        const title = el.dataset.title.toLowerCase();
+        el.style.display = title.includes(q) ? '' : 'none';
+    });
+}
+
+function zoomIn() {
+    viewport.zoom = Math.min(3, viewport.zoom * 1.2);
+    updateTransform();
+    scheduleSave();
+}
+
+function zoomOut() {
+    viewport.zoom = Math.max(0.1, viewport.zoom / 1.2);
+    updateTransform();
+    scheduleSave();
+}
+
+function resetZoom() {
+    viewport.zoom = 1;
+    viewport.x = 0;
+    viewport.y = 0;
+    updateTransform();
+    scheduleSave();
+}
+
+function fitToContent() {
+    if (nodes.length === 0) {
+        resetZoom();
+        return;
+    }
+    
+    // Find bounding box of all nodes
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    nodes.forEach(node => {
+        minX = Math.min(minX, node.position_x);
+        minY = Math.min(minY, node.position_y);
+        maxX = Math.max(maxX, node.position_x + node.width);
+        maxY = Math.max(maxY, node.position_y + node.height);
+    });
+    
+    // Add padding
+    const padding = 100;
+    minX -= padding;
+    minY -= padding;
+    maxX += padding;
+    maxY += padding;
+    
+    // Calculate zoom to fit
+    const rect = canvasEl.getBoundingClientRect();
+    const scaleX = rect.width / (maxX - minX);
+    const scaleY = rect.height / (maxY - minY);
+    const newZoom = Math.min(1, Math.min(scaleX, scaleY));
+    
+    // Center content
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+    
+    viewport.zoom = newZoom;
+    viewport.x = rect.width / 2 - centerX * newZoom;
+    viewport.y = rect.height / 2 - centerY * newZoom;
+    
+    updateTransform();
+    scheduleSave();
+}
+
+// Live updates via SSE
+if (typeof EventSource !== 'undefined') {
+    const source = new EventSource('/stream');
+    
+    source.onmessage = function(event) {
+        const data = JSON.parse(event.data);
+        if (data.type === 'update') {
+            // Refresh chat previews (they might have changed)
+            nodes.forEach(node => {
+                loadChatPreview(node.chat_id, node.node_id);
+            });
+        }
+    };
+}
+
+// Initialize
+initCanvas();
+</script>
+{% endblock %}

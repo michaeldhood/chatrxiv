@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+
+{% block title %}Canvases - Cursor Chats{% endblock %}
+
+{% block extra_head %}
+<style>
+    .canvas-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 24px;
+    }
+    
+    .canvas-header h2 {
+        font-size: 1.3rem;
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+    
+    .create-canvas-form {
+        display: flex;
+        gap: 8px;
+    }
+    
+    .create-canvas-form input {
+        padding: 10px 14px;
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        font-size: 14px;
+        width: 250px;
+        background: var(--bg-tertiary);
+        color: var(--text-primary);
+        font-family: inherit;
+    }
+    
+    .create-canvas-form input:focus {
+        outline: none;
+        border-color: var(--accent-blue);
+        box-shadow: 0 0 0 3px rgba(86, 156, 214, 0.15);
+    }
+    
+    .create-canvas-form button {
+        padding: 10px 20px;
+        background: var(--accent-green);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        font-weight: 500;
+        font-size: 14px;
+        font-family: inherit;
+        transition: background 0.15s;
+    }
+    
+    .create-canvas-form button:hover {
+        background: #3ab899;
+    }
+    
+    .canvas-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+        gap: 20px;
+    }
+    
+    .canvas-card {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 20px;
+        transition: all 0.15s;
+        cursor: pointer;
+        text-decoration: none;
+        color: inherit;
+        display: block;
+    }
+    
+    .canvas-card:hover {
+        border-color: var(--accent-blue);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    }
+    
+    .canvas-card h3 {
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 8px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    
+    .canvas-card h3 .icon {
+        font-size: 1.2rem;
+    }
+    
+    .canvas-card .meta {
+        font-size: 13px;
+        color: var(--text-secondary);
+        display: flex;
+        gap: 16px;
+        margin-top: 12px;
+    }
+    
+    .canvas-card .meta span {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+    
+    .canvas-card .meta .node-count {
+        background: rgba(78, 201, 176, 0.15);
+        color: var(--accent-green);
+        padding: 3px 10px;
+        border-radius: 20px;
+        font-weight: 500;
+    }
+    
+    .empty-state {
+        text-align: center;
+        padding: 60px 24px;
+        background: var(--bg-secondary);
+        border-radius: 12px;
+        border: 1px solid var(--border-color);
+    }
+    
+    .empty-state .icon {
+        font-size: 48px;
+        margin-bottom: 16px;
+        opacity: 0.5;
+    }
+    
+    .empty-state h3 {
+        font-size: 1.2rem;
+        color: var(--text-primary);
+        margin-bottom: 8px;
+    }
+    
+    .empty-state p {
+        color: var(--text-secondary);
+        font-size: 15px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="canvas-header">
+    <h2>📐 Canvases</h2>
+    <form class="create-canvas-form" action="{{ url_for('canvas_create') }}" method="post">
+        <input type="text" name="name" placeholder="New canvas name..." value="">
+        <button type="submit">+ New Canvas</button>
+    </form>
+</div>
+
+{% if canvases %}
+<div class="canvas-grid">
+    {% for canvas in canvases %}
+    <a href="{{ url_for('canvas_view', canvas_id=canvas.id) }}" class="canvas-card">
+        <h3>
+            <span class="icon">🖼️</span>
+            {{ canvas.name }}
+        </h3>
+        <div class="meta">
+            <span class="node-count">{{ canvas.node_count }} chat{{ 's' if canvas.node_count != 1 else '' }}</span>
+            <span>Updated: {{ canvas.updated_at[:10] if canvas.updated_at else 'Never' }}</span>
+        </div>
+    </a>
+    {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+    <div class="icon">🖼️</div>
+    <h3>No canvases yet</h3>
+    <p>Create a canvas to organize your chats visually on an infinite 2D space.</p>
+</div>
+{% endif %}
+{% endblock %}
