@@ -653,6 +653,8 @@
                     const modeClass = result.mode || 'chat';
                     const date = result.created_at ? result.created_at.substring(0, 10) : 'Unknown';
                     const msgCount = result.messages_count || 0;
+                    const wordCount = result.word_count || 0;
+                    const tshirtSize = result.tshirt_size || 'XS';
                     
                     return `
                         <div class="instant-search-item" data-index="${index}" data-id="${result.id}">
@@ -664,6 +666,7 @@
                             <div class="meta">
                                 <span>${date}</span>
                                 <span>${msgCount} message${msgCount !== 1 ? 's' : ''}</span>
+                                <span title="${wordCount} words">${wordCount} words [${tshirtSize}]</span>
                                 ${result.workspace_path ? `<span>${escapeHtml(result.workspace_path)}</span>` : ''}
                             </div>
                         </div>

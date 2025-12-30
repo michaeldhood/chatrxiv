@@ -13,6 +13,7 @@ import os
 
 from src.core.models import Chat, Message, Workspace, ChatMode, MessageRole
 from src.core.config import get_default_db_path
+from src.core.utils import calculate_chat_word_count, word_count_to_tshirt_size
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +90,11 @@ class ChatDatabase:
         if 'messages_count' not in columns:
             cursor.execute("ALTER TABLE chats ADD COLUMN messages_count INTEGER DEFAULT 0")
             logger.info("Added messages_count column to chats table")
+        
+        # Migration: Add word_count column if it doesn't exist
+        if 'word_count' not in columns:
+            cursor.execute("ALTER TABLE chats ADD COLUMN word_count INTEGER DEFAULT 0")
+            logger.info("Added word_count column to chats table")
         
         # Messages table
         cursor.execute("""
@@ -287,15 +293,16 @@ class ChatDatabase:
         cursor.execute("SELECT id FROM chats WHERE cursor_composer_id = ?", (chat.cursor_composer_id,))
         row = cursor.fetchone()
         
-        # Calculate message count
+        # Calculate message count and word count
         messages_count = len(chat.messages)
+        word_count = calculate_chat_word_count(chat.messages)
         
         if row:
             chat_id = row[0]
             # Update chat metadata
             cursor.execute("""
                 UPDATE chats 
-                SET workspace_id = ?, title = ?, mode = ?, created_at = ?, last_updated_at = ?, source = ?, messages_count = ?
+                SET workspace_id = ?, title = ?, mode = ?, created_at = ?, last_updated_at = ?, source = ?, messages_count = ?, word_count = ?
                 WHERE id = ?
             """, (
                 chat.workspace_id,
@@ -305,6 +312,7 @@ class ChatDatabase:
                 chat.last_updated_at.isoformat() if chat.last_updated_at else None,
                 chat.source,
                 messages_count,
+                word_count,
                 chat_id
             ))
             # Delete old messages
@@ -313,8 +321,8 @@ class ChatDatabase:
         else:
             # Insert
             cursor.execute("""
-                INSERT INTO chats (cursor_composer_id, workspace_id, title, mode, created_at, last_updated_at, source, messages_count)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO chats (cursor_composer_id, workspace_id, title, mode, created_at, last_updated_at, source, messages_count, word_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 chat.cursor_composer_id,
                 chat.workspace_id,
@@ -324,6 +332,7 @@ class ChatDatabase:
                 chat.last_updated_at.isoformat() if chat.last_updated_at else None,
                 chat.source,
                 messages_count,
+                word_count,
             ))
             chat_id = cursor.lastrowid
         
@@ -378,7 +387,7 @@ class ChatDatabase:
         cursor = self.conn.cursor()
         
         cursor.execute("""
-            SELECT DISTINCT c.id, c.cursor_composer_id, c.title, c.mode, c.created_at, c.source, c.messages_count,
+            SELECT DISTINCT c.id, c.cursor_composer_id, c.title, c.mode, c.created_at, c.source, c.messages_count, c.word_count,
                    w.workspace_hash, w.resolved_path
             FROM chats c
             LEFT JOIN workspaces w ON c.workspace_id = w.id
@@ -393,6 +402,7 @@ class ChatDatabase:
         for row in cursor.fetchall():
             chat_id = row[0]
             chat_ids.append(chat_id)
+            word_count = row[7] if len(row) > 7 else 0
             results.append({
                 "id": chat_id,
                 "composer_id": row[1],
@@ -401,8 +411,10 @@ class ChatDatabase:
                 "created_at": row[4],
                 "source": row[5],
                 "messages_count": row[6] if len(row) > 6 else 0,
-                "workspace_hash": row[7] if len(row) > 7 else None,
-                "workspace_path": row[8] if len(row) > 8 else None,
+                "word_count": word_count,
+                "tshirt_size": word_count_to_tshirt_size(word_count),
+                "workspace_hash": row[8] if len(row) > 8 else None,
+                "workspace_path": row[9] if len(row) > 9 else None,
                 "tags": [],  # Will be populated below
             })
         
@@ -448,7 +460,7 @@ class ChatDatabase:
         # Get chat - explicitly select columns to handle schema migration
         cursor.execute("""
             SELECT c.id, c.cursor_composer_id, c.workspace_id, c.title, c.mode, 
-                   c.created_at, c.last_updated_at, c.source, c.messages_count,
+                   c.created_at, c.last_updated_at, c.source, c.messages_count, c.word_count,
                    w.workspace_hash, w.resolved_path
             FROM chats c
             LEFT JOIN workspaces w ON c.workspace_id = w.id
@@ -459,6 +471,7 @@ class ChatDatabase:
         if not row:
             return None
         
+        word_count = row[9] if len(row) > 9 else 0
         chat_data = {
             "id": row[0],
             "composer_id": row[1],
@@ -469,8 +482,10 @@ class ChatDatabase:
             "last_updated_at": row[6],
             "source": row[7],
             "messages_count": row[8] if len(row) > 8 else 0,  # Handle migration case
-            "workspace_hash": row[9] if len(row) > 9 else None,
-            "workspace_path": row[10] if len(row) > 10 else None,
+            "word_count": word_count,
+            "tshirt_size": word_count_to_tshirt_size(word_count),
+            "workspace_hash": row[10] if len(row) > 10 else None,
+            "workspace_path": row[11] if len(row) > 11 else None,
             "messages": [],
             "files": [],
         }
@@ -605,7 +620,7 @@ class ChatDatabase:
             where_clause = "WHERE " + " AND ".join(conditions)
         
         query = f"""
-            SELECT c.id, c.cursor_composer_id, c.title, c.mode, c.created_at, c.source, c.messages_count,
+            SELECT c.id, c.cursor_composer_id, c.title, c.mode, c.created_at, c.source, c.messages_count, c.word_count,
                    w.workspace_hash, w.resolved_path
             FROM chats c
             LEFT JOIN workspaces w ON c.workspace_id = w.id
@@ -622,6 +637,7 @@ class ChatDatabase:
         for row in cursor.fetchall():
             chat_id = row[0]
             chat_ids.append(chat_id)
+            word_count = row[7] if len(row) > 7 else 0
             results.append({
                 "id": chat_id,
                 "composer_id": row[1],
@@ -630,8 +646,10 @@ class ChatDatabase:
                 "created_at": row[4],
                 "source": row[5],
                 "messages_count": row[6],
-                "workspace_hash": row[7],
-                "workspace_path": row[8],
+                "word_count": word_count,
+                "tshirt_size": word_count_to_tshirt_size(word_count),
+                "workspace_hash": row[8],
+                "workspace_path": row[9],
                 "tags": [],  # Will be populated below
             })
         
@@ -1105,6 +1123,7 @@ class ChatDatabase:
                     c.created_at,
                     c.source,
                     c.messages_count,
+                    c.word_count,
                     w.workspace_hash,
                     w.resolved_path,
                     snippet(unified_fts, 3, '<mark>', '</mark>', '...', 32) as snippet,
@@ -1122,6 +1141,7 @@ class ChatDatabase:
             for row in cursor.fetchall():
                 chat_id = row[0]
                 chat_ids.append(chat_id)
+                word_count = row[7] if len(row) > 7 else 0
                 results.append({
                     "id": chat_id,
                     "composer_id": row[1],
@@ -1130,10 +1150,12 @@ class ChatDatabase:
                     "created_at": row[4],
                     "source": row[5],
                     "messages_count": row[6] or 0,
-                    "workspace_hash": row[7],
-                    "workspace_path": row[8],
-                    "snippet": row[9],  # Highlighted snippet
-                    "rank": row[10],
+                    "word_count": word_count,
+                    "tshirt_size": word_count_to_tshirt_size(word_count),
+                    "workspace_hash": row[8],
+                    "workspace_path": row[9],
+                    "snippet": row[10],  # Highlighted snippet
+                    "rank": row[11],
                     "tags": [],
                 })
             
@@ -1209,6 +1231,7 @@ class ChatDatabase:
                     c.created_at,
                     c.source,
                     c.messages_count,
+                    c.word_count,
                     w.workspace_hash,
                     w.resolved_path,
                     snippet(unified_fts, 3, '<mark>', '</mark>', '...', 64) as snippet,
@@ -1226,6 +1249,7 @@ class ChatDatabase:
             for row in cursor.fetchall():
                 chat_id = row[0]
                 chat_ids.append(chat_id)
+                word_count = row[7] if len(row) > 7 else 0
                 results.append({
                     "id": chat_id,
                     "composer_id": row[1],
@@ -1234,10 +1258,12 @@ class ChatDatabase:
                     "created_at": row[4],
                     "source": row[5],
                     "messages_count": row[6] or 0,
-                    "workspace_hash": row[7],
-                    "workspace_path": row[8],
-                    "snippet": row[9],
-                    "rank": row[10],
+                    "word_count": word_count,
+                    "tshirt_size": word_count_to_tshirt_size(word_count),
+                    "workspace_hash": row[8],
+                    "workspace_path": row[9],
+                    "snippet": row[10],
+                    "rank": row[11],
                     "tags": [],
                 })
             
@@ -1410,6 +1436,7 @@ class ChatDatabase:
                     c.created_at,
                     c.source,
                     c.messages_count,
+                    c.word_count,
                     w.workspace_hash,
                     w.resolved_path,
                     snippet(unified_fts, 3, '<mark>', '</mark>', '...', 64) as snippet,
@@ -1428,6 +1455,7 @@ class ChatDatabase:
             for row in cursor.fetchall():
                 chat_id = row[0]
                 chat_ids.append(chat_id)
+                word_count = row[7] if len(row) > 7 else 0
                 results.append({
                     "id": chat_id,
                     "composer_id": row[1],
@@ -1436,10 +1464,12 @@ class ChatDatabase:
                     "created_at": row[4],
                     "source": row[5],
                     "messages_count": row[6] or 0,
-                    "workspace_hash": row[7],
-                    "workspace_path": row[8],
-                    "snippet": row[9],
-                    "rank": row[10],
+                    "word_count": word_count,
+                    "tshirt_size": word_count_to_tshirt_size(word_count),
+                    "workspace_hash": row[8],
+                    "workspace_path": row[9],
+                    "snippet": row[10],
+                    "rank": row[11],
                     "tags": [],
                 })
             

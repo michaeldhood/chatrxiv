@@ -497,6 +497,12 @@
                         <span class="messages-count {% if msg_count == 0 %}zero{% elif msg_count < 5 %}low{% elif msg_count < 20 %}medium{% else %}high{% endif %}">
                             {{ msg_count }}
                         </span>
+                        <span class="word-count" title="{{ chat.word_count or 0 }} words">
+                            ({{ chat.word_count or 0 }} words)
+                        </span>
+                        <span class="tshirt-size" title="T-shirt size based on word count">
+                            [{{ chat.tshirt_size or 'XS' }}]
+                        </span>
                     </td>
                     <td class="col-date">
                         {% if chat.created_at %}

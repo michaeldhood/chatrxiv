@@ -133,7 +133,7 @@ def database_view():
         order_dir = 'ASC' if sort_order == 'asc' else 'DESC'
         
         query = f"""
-            SELECT c.id, c.cursor_composer_id, c.title, c.mode, c.created_at, c.source, c.messages_count,
+            SELECT c.id, c.cursor_composer_id, c.title, c.mode, c.created_at, c.source, c.messages_count, c.word_count,
                    w.workspace_hash, w.resolved_path
             FROM chats c
             LEFT JOIN workspaces w ON c.workspace_id = w.id
@@ -145,11 +145,15 @@ def database_view():
         params.extend([limit, offset])
         cursor.execute(query, params)
         
+        # Import utility function for t-shirt size conversion
+        from src.core.utils import word_count_to_tshirt_size
+        
         chats = []
         chat_ids = []
         for row in cursor.fetchall():
             chat_id = row[0]
             chat_ids.append(chat_id)
+            word_count = row[7] if len(row) > 7 else 0
             chats.append({
                 "id": chat_id,
                 "composer_id": row[1],
@@ -158,8 +162,10 @@ def database_view():
                 "created_at": row[4],
                 "source": row[5],
                 "messages_count": row[6],
-                "workspace_hash": row[7],
-                "workspace_path": row[8],
+                "word_count": word_count,
+                "tshirt_size": word_count_to_tshirt_size(word_count),
+                "workspace_hash": row[8] if len(row) > 8 else None,
+                "workspace_path": row[9] if len(row) > 9 else None,
                 "tags": [],
             })
         
