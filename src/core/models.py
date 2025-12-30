@@ -98,6 +98,7 @@ class Chat:
     source: str = "cursor"  # "cursor" or "legacy"
     messages: List[Message] = None
     relevant_files: List[str] = None
+    topic_statement: Optional[str] = None
 
     def __post_init__(self):
         """Initialize default values."""
@@ -116,5 +117,6 @@ class Chat:
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "last_updated_at": self.last_updated_at.isoformat() if self.last_updated_at else None,
             "source": self.source,
+            "topic_statement": self.topic_statement,
         }
 

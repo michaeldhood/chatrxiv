@@ -12,6 +12,7 @@ from src.core.config import get_default_db_path
 from src.services.legacy_importer import LegacyChatImporter
 from src.services.search import ChatSearchService
 from src.services.exporter import ChatExporter
+from src.services.topic_generator import TopicStatementGenerator
 from src.cli.common import db_option, output_dir_option, format_option, create_progress_callback
 from src.cli.orchestrators.ingestion import IngestionOrchestrator
 
@@ -261,4 +262,142 @@ def cleanup(ctx, db_path, dry_run):
 
     except Exception as e:
         click.secho(f"Error during cleanup: {e}", fg='red', err=True)
+        raise click.Abort()
+
+
+@click.command('generate-topics')
+@db_option
+@click.option(
+    '--chat-id',
+    type=int,
+    help='Generate topic statement for specific chat by ID'
+)
+@click.option(
+    '--all',
+    'generate_all',
+    is_flag=True,
+    help='Generate topic statements for all chats without one'
+)
+@click.option(
+    '--provider',
+    type=click.Choice(['openai', 'anthropic', 'heuristic']),
+    default='heuristic',
+    help='AI provider to use for generation (default: heuristic, no API required)'
+)
+@click.option(
+    '--api-key',
+    help='API key for the provider (or set OPENAI_API_KEY/ANTHROPIC_API_KEY env var)'
+)
+@click.option(
+    '--force',
+    is_flag=True,
+    help='Regenerate topic statements even if they already exist'
+)
+@click.pass_context
+def generate_topics(ctx, db_path, chat_id, generate_all, provider, api_key, force):
+    """Generate topic statements for chats.
+    
+    Topic statements are concise summaries of what each chat conversation is about.
+    They can be generated using AI APIs (OpenAI, Anthropic) or simple heuristics.
+    
+    Examples:
+    
+    \b
+        # Generate for a specific chat
+        python -m src generate-topics --chat-id 123
+        
+    \b
+        # Generate for all chats without topic statements
+        python -m src generate-topics --all
+        
+    \b
+        # Use OpenAI API (requires OPENAI_API_KEY env var)
+        python -m src generate-topics --all --provider openai
+        
+    \b
+        # Force regenerate all topic statements
+        python -m src generate-topics --all --force
+    """
+    # Get database from context
+    if db_path:
+        ctx.obj.db_path = Path(db_path)
+
+    db = ctx.obj.get_db()
+
+    if not chat_id and not generate_all:
+        click.secho("Error: Must specify either --chat-id or --all", fg='red', err=True)
+        raise click.Abort()
+
+    try:
+        generator = TopicStatementGenerator(provider=provider, api_key=api_key)
+        
+        if chat_id:
+            # Generate for single chat
+            chat_data = db.get_chat(chat_id)
+            if not chat_data:
+                click.secho(f"Chat {chat_id} not found", fg='red', err=True)
+                raise click.Abort()
+            
+            # Check if already has topic statement
+            if chat_data.get("topic_statement") and not force:
+                click.echo(f"Chat {chat_id} already has a topic statement: {chat_data['topic_statement']}")
+                click.echo("Use --force to regenerate")
+                return
+            
+            click.echo(f"Generating topic statement for chat {chat_id}...")
+            topic = generator.update_chat_topic(db, chat_id)
+            
+            if topic:
+                click.secho(f"Generated: {topic}", fg='green')
+            else:
+                click.secho("Failed to generate topic statement", fg='yellow')
+        
+        elif generate_all:
+            # Generate for all chats without topic statements
+            cursor = db.conn.cursor()
+            
+            if force:
+                # Get all chats
+                cursor.execute("SELECT id FROM chats ORDER BY id")
+                click.echo("Generating topic statements for all chats...")
+            else:
+                # Get only chats without topic statements
+                cursor.execute("SELECT id FROM chats WHERE topic_statement IS NULL OR topic_statement = '' ORDER BY id")
+                click.echo("Generating topic statements for chats without one...")
+            
+            chat_ids = [row[0] for row in cursor.fetchall()]
+            
+            if not chat_ids:
+                click.echo("No chats found to process")
+                return
+            
+            click.echo(f"Processing {len(chat_ids)} chats...")
+            
+            success_count = 0
+            error_count = 0
+            
+            for idx, cid in enumerate(chat_ids, 1):
+                if idx % 10 == 0 or idx == len(chat_ids):
+                    click.echo(f"Progress: {idx}/{len(chat_ids)}...")
+                
+                try:
+                    topic = generator.update_chat_topic(db, cid)
+                    if topic:
+                        success_count += 1
+                    else:
+                        error_count += 1
+                except Exception as e:
+                    logger.error("Error generating topic for chat %d: %s", cid, e)
+                    error_count += 1
+            
+            click.echo("\n" + "="*50)
+            click.secho(f"Complete! Generated {success_count} topic statements", fg='green')
+            if error_count > 0:
+                click.secho(f"Errors: {error_count}", fg='yellow')
+
+    except Exception as e:
+        click.secho(f"Error during topic generation: {e}", fg='red', err=True)
+        if ctx.obj.verbose:
+            import traceback
+            click.echo(traceback.format_exc(), err=True)
         raise click.Abort()

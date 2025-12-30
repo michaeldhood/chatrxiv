@@ -90,6 +90,11 @@ class ChatDatabase:
             cursor.execute("ALTER TABLE chats ADD COLUMN messages_count INTEGER DEFAULT 0")
             logger.info("Added messages_count column to chats table")
         
+        # Migration: Add topic_statement column if it doesn't exist
+        if 'topic_statement' not in columns:
+            cursor.execute("ALTER TABLE chats ADD COLUMN topic_statement TEXT")
+            logger.info("Added topic_statement column to chats table")
+        
         # Messages table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS messages (
@@ -295,7 +300,7 @@ class ChatDatabase:
             # Update chat metadata
             cursor.execute("""
                 UPDATE chats 
-                SET workspace_id = ?, title = ?, mode = ?, created_at = ?, last_updated_at = ?, source = ?, messages_count = ?
+                SET workspace_id = ?, title = ?, mode = ?, created_at = ?, last_updated_at = ?, source = ?, messages_count = ?, topic_statement = ?
                 WHERE id = ?
             """, (
                 chat.workspace_id,
@@ -305,6 +310,7 @@ class ChatDatabase:
                 chat.last_updated_at.isoformat() if chat.last_updated_at else None,
                 chat.source,
                 messages_count,
+                chat.topic_statement,
                 chat_id
             ))
             # Delete old messages
@@ -313,8 +319,8 @@ class ChatDatabase:
         else:
             # Insert
             cursor.execute("""
-                INSERT INTO chats (cursor_composer_id, workspace_id, title, mode, created_at, last_updated_at, source, messages_count)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO chats (cursor_composer_id, workspace_id, title, mode, created_at, last_updated_at, source, messages_count, topic_statement)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 chat.cursor_composer_id,
                 chat.workspace_id,
@@ -324,6 +330,7 @@ class ChatDatabase:
                 chat.last_updated_at.isoformat() if chat.last_updated_at else None,
                 chat.source,
                 messages_count,
+                chat.topic_statement,
             ))
             chat_id = cursor.lastrowid
         
@@ -378,7 +385,7 @@ class ChatDatabase:
         cursor = self.conn.cursor()
         
         cursor.execute("""
-            SELECT DISTINCT c.id, c.cursor_composer_id, c.title, c.mode, c.created_at, c.source, c.messages_count,
+            SELECT DISTINCT c.id, c.cursor_composer_id, c.title, c.mode, c.created_at, c.source, c.messages_count, c.topic_statement,
                    w.workspace_hash, w.resolved_path
             FROM chats c
             LEFT JOIN workspaces w ON c.workspace_id = w.id
@@ -401,8 +408,9 @@ class ChatDatabase:
                 "created_at": row[4],
                 "source": row[5],
                 "messages_count": row[6] if len(row) > 6 else 0,
-                "workspace_hash": row[7] if len(row) > 7 else None,
-                "workspace_path": row[8] if len(row) > 8 else None,
+                "topic_statement": row[7] if len(row) > 7 else None,  # Handle migration case
+                "workspace_hash": row[8] if len(row) > 8 else None,
+                "workspace_path": row[9] if len(row) > 9 else None,
                 "tags": [],  # Will be populated below
             })
         
@@ -448,7 +456,7 @@ class ChatDatabase:
         # Get chat - explicitly select columns to handle schema migration
         cursor.execute("""
             SELECT c.id, c.cursor_composer_id, c.workspace_id, c.title, c.mode, 
-                   c.created_at, c.last_updated_at, c.source, c.messages_count,
+                   c.created_at, c.last_updated_at, c.source, c.messages_count, c.topic_statement,
                    w.workspace_hash, w.resolved_path
             FROM chats c
             LEFT JOIN workspaces w ON c.workspace_id = w.id
@@ -469,8 +477,9 @@ class ChatDatabase:
             "last_updated_at": row[6],
             "source": row[7],
             "messages_count": row[8] if len(row) > 8 else 0,  # Handle migration case
-            "workspace_hash": row[9] if len(row) > 9 else None,
-            "workspace_path": row[10] if len(row) > 10 else None,
+            "topic_statement": row[9] if len(row) > 9 else None,  # Handle migration case
+            "workspace_hash": row[10] if len(row) > 10 else None,
+            "workspace_path": row[11] if len(row) > 11 else None,
             "messages": [],
             "files": [],
         }
@@ -605,7 +614,7 @@ class ChatDatabase:
             where_clause = "WHERE " + " AND ".join(conditions)
         
         query = f"""
-            SELECT c.id, c.cursor_composer_id, c.title, c.mode, c.created_at, c.source, c.messages_count,
+            SELECT c.id, c.cursor_composer_id, c.title, c.mode, c.created_at, c.source, c.messages_count, c.topic_statement,
                    w.workspace_hash, w.resolved_path
             FROM chats c
             LEFT JOIN workspaces w ON c.workspace_id = w.id
@@ -630,8 +639,9 @@ class ChatDatabase:
                 "created_at": row[4],
                 "source": row[5],
                 "messages_count": row[6],
-                "workspace_hash": row[7],
-                "workspace_path": row[8],
+                "topic_statement": row[7] if len(row) > 7 else None,  # Handle migration case
+                "workspace_hash": row[8] if len(row) > 8 else None,
+                "workspace_path": row[9] if len(row) > 9 else None,
                 "tags": [],  # Will be populated below
             })
         
@@ -1467,6 +1477,29 @@ class ChatDatabase:
         except sqlite3.OperationalError as e:
             logger.debug("FTS filtered query error for '%s': %s", query, e)
             return [], 0
+    
+    def update_topic_statement(self, chat_id: int, topic_statement: str) -> bool:
+        """
+        Update topic statement for a chat.
+        
+        Parameters
+        ----
+        chat_id : int
+            Chat ID
+        topic_statement : str
+            Topic statement to set
+            
+        Returns
+        ----
+        bool
+            True if update succeeded, False otherwise
+        """
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            UPDATE chats SET topic_statement = ? WHERE id = ?
+        """, (topic_statement, chat_id))
+        self.conn.commit()
+        return cursor.rowcount > 0
     
     def delete_empty_chats(self) -> int:
         """
