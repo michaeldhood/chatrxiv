@@ -483,15 +483,27 @@ class ChatDatabase:
             ORDER BY created_at ASC
         """, (chat_id,))
         
+        thinking_count = 0
         for msg_row in cursor.fetchall():
+            message_type = msg_row[5] if len(msg_row) > 5 else "response"
+            
+            # Count thinking messages
+            if message_type == "thinking":
+                thinking_count += 1
+                # Don't add thinking messages to the messages list
+                continue
+            
             chat_data["messages"].append({
                 "role": msg_row[0],
                 "text": msg_row[1],
                 "rich_text": msg_row[2],
                 "created_at": msg_row[3],
                 "bubble_id": msg_row[4],
-                "message_type": msg_row[5] if len(msg_row) > 5 else "response",  # Handle migration case
+                "message_type": message_type,
             })
+        
+        # Add thinking count to chat data
+        chat_data["thinking_count"] = thinking_count
         
         # Get files
         cursor.execute("SELECT path FROM chat_files WHERE chat_id = ?", (chat_id,))

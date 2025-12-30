@@ -240,6 +240,9 @@
             {% if chat.workspace_path %}
             <span>Workspace: {{ chat.workspace_path }}</span>
             {% endif %}
+            {% if chat.thinking_count and chat.thinking_count > 0 %}
+            <span>🧠 Thinking bubbles: {{ chat.thinking_count }}</span>
+            {% endif %}
         </div>
     </div>
     

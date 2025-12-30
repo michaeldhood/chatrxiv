@@ -273,7 +273,7 @@ def chat_detail(chat_id):
         if not chat:
             return "Chat not found", 404
         
-        # Process messages to group tool calls and filter empty
+        # Process messages to group tool calls and filter empty/thinking
         processed_messages = []
         tool_call_group = []
         
@@ -282,6 +282,9 @@ def chat_detail(chat_id):
             
             if msg_type == 'empty':
                 # Skip empty messages
+                continue
+            elif msg_type == 'thinking':
+                # Skip thinking messages (they're already filtered in db.get_chat, but double-check)
                 continue
             elif msg_type == 'tool_call':
                 # Accumulate tool calls
@@ -308,6 +311,7 @@ def chat_detail(chat_id):
             })
         
         chat['processed_messages'] = processed_messages
+        # thinking_count is already included from db.get_chat()
         
         return render_template('chat_detail.html', chat=chat)
     finally:
