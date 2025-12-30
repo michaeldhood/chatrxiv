@@ -7,6 +7,7 @@ import os
 import signal
 import sys
 import time
+from pathlib import Path
 
 import click
 
@@ -53,15 +54,23 @@ def watch(ctx, source, poll_interval, debounce, use_polling, db_path):
     """
     # Get database from context
     if db_path:
-        ctx.obj.db_path = db_path
+        ctx.obj.db_path = Path(db_path)
     
     db = ctx.obj.get_db()
+    # Get the actual db path (string) for creating new connections in threads
+    from src.core.config import get_default_db_path
+    db_path_str = str(ctx.obj.db_path) if ctx.obj.db_path else str(get_default_db_path())
     
     try:
+        # Perform initial ingestion with main thread connection
         aggregator = ChatAggregator(db)
         
         def do_ingestion():
-            """Perform incremental ingestion."""
+            """Perform incremental ingestion in background thread."""
+            # Create new database connection in this thread (SQLite is thread-local)
+            thread_db = ChatDatabase(db_path_str)
+            thread_aggregator = ChatAggregator(thread_db)
+            
             try:
                 sources_to_ingest = []
                 if source == "cursor" or source == "all":
@@ -71,19 +80,36 @@ def watch(ctx, source, poll_interval, debounce, use_polling, db_path):
                 
                 for source_name in sources_to_ingest:
                     if source_name == "cursor":
-                        stats = aggregator.ingest_all(incremental=True)
+                        stats = thread_aggregator.ingest_all(incremental=True)
                         click.echo(f"Auto-ingestion: {stats['ingested']} ingested, "
                                  f"{stats['skipped']} skipped, {stats['errors']} errors")
                     elif source_name == "claude":
-                        stats = aggregator.ingest_claude(incremental=True)
+                        stats = thread_aggregator.ingest_claude(incremental=True)
                         click.echo(f"Auto-ingestion: {stats['ingested']} ingested, "
                                  f"{stats['skipped']} skipped, {stats['errors']} errors")
             except Exception as e:
                 click.secho(f"Error during automatic ingestion: {e}", fg='red', err=True)
+            finally:
+                thread_db.close()
         
         # Perform initial ingestion
         click.echo("Performing initial ingestion...")
-        do_ingestion()
+        # Use main thread connection for initial ingestion
+        sources_to_ingest = []
+        if source == "cursor" or source == "all":
+            sources_to_ingest.append("cursor")
+        if source == "claude" or source == "all":
+            sources_to_ingest.append("claude")
+        
+        for source_name in sources_to_ingest:
+            if source_name == "cursor":
+                stats = aggregator.ingest_all(incremental=True)
+                click.echo(f"Initial ingestion: {stats['ingested']} ingested, "
+                         f"{stats['skipped']} skipped, {stats['errors']} errors")
+            elif source_name == "claude":
+                stats = aggregator.ingest_claude(incremental=True)
+                click.echo(f"Initial ingestion: {stats['ingested']} ingested, "
+                         f"{stats['skipped']} skipped, {stats['errors']} errors")
         
         # Start watcher
         from src.services.watcher import IngestionWatcher
