@@ -92,6 +92,10 @@ from .commands.watch import watch, update_modes
 cli.add_command(watch)
 cli.add_command(update_modes)
 
+# GitHub activity integration
+from .commands.github import github
+cli.add_command(github)
+
 
 def main():
     """

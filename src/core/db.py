@@ -11,7 +11,11 @@ from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime
 import os
 
-from src.core.models import Chat, Message, Workspace, ChatMode, MessageRole
+from src.core.models import (
+    Chat, Message, Workspace, ChatMode, MessageRole,
+    Repository, Commit, CommitFile, PullRequest, PRState, 
+    ChatActivityLink, ActivityLinkType
+)
 from src.core.config import get_default_db_path
 
 logger = logging.getLogger(__name__)
@@ -196,6 +200,116 @@ class ChatDatabase:
             )
         """)
         
+        # =================================================================
+        # GitHub Activity Tables
+        # =================================================================
+        
+        # Repositories - maps workspaces to GitHub repos
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS repositories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                workspace_id INTEGER,
+                owner TEXT NOT NULL,
+                name TEXT NOT NULL,
+                full_name TEXT NOT NULL,
+                default_branch TEXT DEFAULT 'main',
+                remote_url TEXT,
+                local_path TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                last_synced_at TEXT,
+                UNIQUE(owner, name),
+                FOREIGN KEY (workspace_id) REFERENCES workspaces(id)
+            )
+        """)
+        
+        # Commits
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS commits (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                repository_id INTEGER NOT NULL,
+                sha TEXT NOT NULL,
+                short_sha TEXT NOT NULL,
+                message TEXT,
+                author_name TEXT,
+                author_email TEXT,
+                author_login TEXT,
+                authored_at TEXT NOT NULL,
+                committed_at TEXT,
+                branch TEXT,
+                additions INTEGER DEFAULT 0,
+                deletions INTEGER DEFAULT 0,
+                files_changed INTEGER DEFAULT 0,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(repository_id, sha),
+                FOREIGN KEY (repository_id) REFERENCES repositories(id) ON DELETE CASCADE
+            )
+        """)
+        
+        # Files changed in commits
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS commit_files (
+                commit_id INTEGER NOT NULL,
+                path TEXT NOT NULL,
+                status TEXT,
+                additions INTEGER DEFAULT 0,
+                deletions INTEGER DEFAULT 0,
+                PRIMARY KEY (commit_id, path),
+                FOREIGN KEY (commit_id) REFERENCES commits(id) ON DELETE CASCADE
+            )
+        """)
+        
+        # Pull Requests
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS pull_requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                repository_id INTEGER NOT NULL,
+                number INTEGER NOT NULL,
+                title TEXT,
+                body TEXT,
+                state TEXT DEFAULT 'open',
+                author_login TEXT,
+                base_branch TEXT,
+                head_branch TEXT,
+                created_at TEXT,
+                updated_at TEXT,
+                merged_at TEXT,
+                closed_at TEXT,
+                additions INTEGER DEFAULT 0,
+                deletions INTEGER DEFAULT 0,
+                changed_files INTEGER DEFAULT 0,
+                commits_count INTEGER DEFAULT 0,
+                github_created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(repository_id, number),
+                FOREIGN KEY (repository_id) REFERENCES repositories(id) ON DELETE CASCADE
+            )
+        """)
+        
+        # Commits in PRs (many-to-many)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS pr_commits (
+                pr_id INTEGER NOT NULL,
+                commit_id INTEGER NOT NULL,
+                PRIMARY KEY (pr_id, commit_id),
+                FOREIGN KEY (pr_id) REFERENCES pull_requests(id) ON DELETE CASCADE,
+                FOREIGN KEY (commit_id) REFERENCES commits(id) ON DELETE CASCADE
+            )
+        """)
+        
+        # Chat-Activity cross-reference links
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS chat_activity_links (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                chat_id INTEGER NOT NULL,
+                activity_type TEXT NOT NULL,
+                activity_id INTEGER NOT NULL,
+                link_type TEXT NOT NULL,
+                confidence REAL DEFAULT 1.0,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(chat_id, activity_type, activity_id),
+                FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE
+            )
+        """)
+        
         # Indexes for performance
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_chats_composer_id ON chats(cursor_composer_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_chats_workspace ON chats(workspace_id)")
@@ -204,6 +318,21 @@ class ChatDatabase:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_messages_chat ON messages(chat_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_workspaces_hash ON workspaces(workspace_hash)")
+        
+        # GitHub activity indexes
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_repos_workspace ON repositories(workspace_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_repos_full_name ON repositories(full_name)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_commits_repo ON commits(repository_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_commits_sha ON commits(sha)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_commits_authored ON commits(authored_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_commit_files_commit ON commit_files(commit_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_commit_files_path ON commit_files(path)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_prs_repo ON pull_requests(repository_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_prs_number ON pull_requests(number)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_prs_created ON pull_requests(created_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_prs_state ON pull_requests(state)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_activity_links_chat ON chat_activity_links(chat_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_activity_links_activity ON chat_activity_links(activity_type, activity_id)")
         
         # Check if unified_fts needs to be rebuilt (migration for existing databases)
         cursor.execute("SELECT COUNT(*) FROM unified_fts")
@@ -1493,4 +1622,583 @@ class ChatDatabase:
         logger.info("Starting unified FTS index rebuild...")
         self._rebuild_unified_fts()
         logger.info("Unified FTS index rebuild complete")
+    
+    # =================================================================
+    # GitHub Activity Methods
+    # =================================================================
+    
+    def upsert_repository(self, repo: Repository) -> int:
+        """
+        Insert or update a repository.
+        
+        Parameters
+        ----
+        repo : Repository
+            Repository to upsert
+            
+        Returns
+        ----
+        int
+            Repository ID
+        """
+        cursor = self.conn.cursor()
+        
+        # Check if exists by owner/name
+        cursor.execute(
+            "SELECT id FROM repositories WHERE owner = ? AND name = ?",
+            (repo.owner, repo.name)
+        )
+        row = cursor.fetchone()
+        
+        if row:
+            repo_id = row[0]
+            cursor.execute("""
+                UPDATE repositories 
+                SET workspace_id = ?, full_name = ?, default_branch = ?,
+                    remote_url = ?, local_path = ?, last_synced_at = ?
+                WHERE id = ?
+            """, (
+                repo.workspace_id,
+                repo.full_name,
+                repo.default_branch,
+                repo.remote_url,
+                repo.local_path,
+                repo.last_synced_at.isoformat() if repo.last_synced_at else None,
+                repo_id
+            ))
+        else:
+            cursor.execute("""
+                INSERT INTO repositories 
+                (workspace_id, owner, name, full_name, default_branch, remote_url, local_path, last_synced_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                repo.workspace_id,
+                repo.owner,
+                repo.name,
+                repo.full_name,
+                repo.default_branch,
+                repo.remote_url,
+                repo.local_path,
+                repo.last_synced_at.isoformat() if repo.last_synced_at else None,
+            ))
+            repo_id = cursor.lastrowid
+        
+        self.conn.commit()
+        return repo_id
+    
+    def get_repository_by_full_name(self, full_name: str) -> Optional[Dict[str, Any]]:
+        """
+        Get a repository by owner/name.
+        
+        Parameters
+        ----
+        full_name : str
+            Repository full name (e.g., "owner/repo")
+            
+        Returns
+        ----
+        Dict[str, Any], optional
+            Repository data or None
+        """
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT id, workspace_id, owner, name, full_name, default_branch,
+                   remote_url, local_path, last_synced_at
+            FROM repositories WHERE full_name = ?
+        """, (full_name,))
+        row = cursor.fetchone()
+        if not row:
+            return None
+        return {
+            "id": row[0],
+            "workspace_id": row[1],
+            "owner": row[2],
+            "name": row[3],
+            "full_name": row[4],
+            "default_branch": row[5],
+            "remote_url": row[6],
+            "local_path": row[7],
+            "last_synced_at": row[8],
+        }
+    
+    def get_repository_by_workspace(self, workspace_id: int) -> Optional[Dict[str, Any]]:
+        """Get repository linked to a workspace."""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT id, workspace_id, owner, name, full_name, default_branch,
+                   remote_url, local_path, last_synced_at
+            FROM repositories WHERE workspace_id = ?
+        """, (workspace_id,))
+        row = cursor.fetchone()
+        if not row:
+            return None
+        return {
+            "id": row[0],
+            "workspace_id": row[1],
+            "owner": row[2],
+            "name": row[3],
+            "full_name": row[4],
+            "default_branch": row[5],
+            "remote_url": row[6],
+            "local_path": row[7],
+            "last_synced_at": row[8],
+        }
+    
+    def list_repositories(self) -> List[Dict[str, Any]]:
+        """List all repositories."""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT r.id, r.workspace_id, r.owner, r.name, r.full_name, 
+                   r.default_branch, r.remote_url, r.local_path, r.last_synced_at,
+                   w.resolved_path as workspace_path
+            FROM repositories r
+            LEFT JOIN workspaces w ON r.workspace_id = w.id
+            ORDER BY r.full_name
+        """)
+        return [{
+            "id": row[0],
+            "workspace_id": row[1],
+            "owner": row[2],
+            "name": row[3],
+            "full_name": row[4],
+            "default_branch": row[5],
+            "remote_url": row[6],
+            "local_path": row[7],
+            "last_synced_at": row[8],
+            "workspace_path": row[9],
+        } for row in cursor.fetchall()]
+    
+    def upsert_commit(self, commit: Commit) -> int:
+        """
+        Insert or update a commit and its files.
+        
+        Parameters
+        ----
+        commit : Commit
+            Commit to upsert
+            
+        Returns
+        ----
+        int
+            Commit ID
+        """
+        cursor = self.conn.cursor()
+        
+        # Check if exists
+        cursor.execute(
+            "SELECT id FROM commits WHERE repository_id = ? AND sha = ?",
+            (commit.repository_id, commit.sha)
+        )
+        row = cursor.fetchone()
+        
+        if row:
+            commit_id = row[0]
+            cursor.execute("""
+                UPDATE commits 
+                SET message = ?, author_name = ?, author_email = ?, author_login = ?,
+                    authored_at = ?, committed_at = ?, branch = ?,
+                    additions = ?, deletions = ?, files_changed = ?
+                WHERE id = ?
+            """, (
+                commit.message,
+                commit.author_name,
+                commit.author_email,
+                commit.author_login,
+                commit.authored_at.isoformat() if commit.authored_at else None,
+                commit.committed_at.isoformat() if commit.committed_at else None,
+                commit.branch,
+                commit.additions,
+                commit.deletions,
+                commit.files_changed,
+                commit_id
+            ))
+            # Delete old files
+            cursor.execute("DELETE FROM commit_files WHERE commit_id = ?", (commit_id,))
+        else:
+            cursor.execute("""
+                INSERT INTO commits 
+                (repository_id, sha, short_sha, message, author_name, author_email, 
+                 author_login, authored_at, committed_at, branch, additions, deletions, files_changed)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                commit.repository_id,
+                commit.sha,
+                commit.short_sha,
+                commit.message,
+                commit.author_name,
+                commit.author_email,
+                commit.author_login,
+                commit.authored_at.isoformat() if commit.authored_at else None,
+                commit.committed_at.isoformat() if commit.committed_at else None,
+                commit.branch,
+                commit.additions,
+                commit.deletions,
+                commit.files_changed,
+            ))
+            commit_id = cursor.lastrowid
+        
+        # Insert files
+        for cf in commit.files:
+            cursor.execute("""
+                INSERT OR IGNORE INTO commit_files (commit_id, path, status, additions, deletions)
+                VALUES (?, ?, ?, ?, ?)
+            """, (commit_id, cf.path, cf.status, cf.additions, cf.deletions))
+        
+        self.conn.commit()
+        return commit_id
+    
+    def get_commit_by_sha(self, repository_id: int, sha: str) -> Optional[Dict[str, Any]]:
+        """Get a commit by SHA."""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT id, repository_id, sha, short_sha, message, author_name,
+                   author_email, author_login, authored_at, committed_at, branch,
+                   additions, deletions, files_changed
+            FROM commits WHERE repository_id = ? AND sha = ?
+        """, (repository_id, sha))
+        row = cursor.fetchone()
+        if not row:
+            return None
+        return {
+            "id": row[0], "repository_id": row[1], "sha": row[2],
+            "short_sha": row[3], "message": row[4], "author_name": row[5],
+            "author_email": row[6], "author_login": row[7], "authored_at": row[8],
+            "committed_at": row[9], "branch": row[10], "additions": row[11],
+            "deletions": row[12], "files_changed": row[13],
+        }
+    
+    def find_commits_in_range(
+        self, 
+        repository_id: int, 
+        start_time: datetime, 
+        end_time: datetime
+    ) -> List[Dict[str, Any]]:
+        """Find commits within a time range."""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT id, sha, short_sha, message, author_login, authored_at,
+                   additions, deletions, files_changed
+            FROM commits 
+            WHERE repository_id = ? AND authored_at >= ? AND authored_at <= ?
+            ORDER BY authored_at DESC
+        """, (repository_id, start_time.isoformat(), end_time.isoformat()))
+        return [{
+            "id": row[0], "sha": row[1], "short_sha": row[2], "message": row[3],
+            "author_login": row[4], "authored_at": row[5], "additions": row[6],
+            "deletions": row[7], "files_changed": row[8],
+        } for row in cursor.fetchall()]
+    
+    def find_commits_by_files(
+        self, 
+        repository_id: int, 
+        file_paths: List[str]
+    ) -> List[Dict[str, Any]]:
+        """Find commits that modified any of the given files."""
+        if not file_paths:
+            return []
+        cursor = self.conn.cursor()
+        placeholders = ','.join(['?'] * len(file_paths))
+        cursor.execute(f"""
+            SELECT DISTINCT c.id, c.sha, c.short_sha, c.message, c.author_login,
+                   c.authored_at, c.additions, c.deletions, c.files_changed
+            FROM commits c
+            JOIN commit_files cf ON c.id = cf.commit_id
+            WHERE c.repository_id = ? AND cf.path IN ({placeholders})
+            ORDER BY c.authored_at DESC
+        """, [repository_id] + file_paths)
+        return [{
+            "id": row[0], "sha": row[1], "short_sha": row[2], "message": row[3],
+            "author_login": row[4], "authored_at": row[5], "additions": row[6],
+            "deletions": row[7], "files_changed": row[8],
+        } for row in cursor.fetchall()]
+    
+    def get_commit_files(self, commit_id: int) -> List[Dict[str, Any]]:
+        """Get files changed in a commit."""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT path, status, additions, deletions 
+            FROM commit_files WHERE commit_id = ?
+        """, (commit_id,))
+        return [{
+            "path": row[0], "status": row[1], 
+            "additions": row[2], "deletions": row[3]
+        } for row in cursor.fetchall()]
+    
+    def upsert_pull_request(self, pr: PullRequest) -> int:
+        """
+        Insert or update a pull request.
+        
+        Parameters
+        ----
+        pr : PullRequest
+            Pull request to upsert
+            
+        Returns
+        ----
+        int
+            Pull request ID
+        """
+        cursor = self.conn.cursor()
+        
+        # Check if exists
+        cursor.execute(
+            "SELECT id FROM pull_requests WHERE repository_id = ? AND number = ?",
+            (pr.repository_id, pr.number)
+        )
+        row = cursor.fetchone()
+        
+        if row:
+            pr_id = row[0]
+            cursor.execute("""
+                UPDATE pull_requests 
+                SET title = ?, body = ?, state = ?, author_login = ?,
+                    base_branch = ?, head_branch = ?, created_at = ?, updated_at = ?,
+                    merged_at = ?, closed_at = ?, additions = ?, deletions = ?,
+                    changed_files = ?, commits_count = ?
+                WHERE id = ?
+            """, (
+                pr.title, pr.body, pr.state.value, pr.author_login,
+                pr.base_branch, pr.head_branch,
+                pr.created_at.isoformat() if pr.created_at else None,
+                pr.updated_at.isoformat() if pr.updated_at else None,
+                pr.merged_at.isoformat() if pr.merged_at else None,
+                pr.closed_at.isoformat() if pr.closed_at else None,
+                pr.additions, pr.deletions, pr.changed_files, pr.commits_count,
+                pr_id
+            ))
+        else:
+            cursor.execute("""
+                INSERT INTO pull_requests 
+                (repository_id, number, title, body, state, author_login,
+                 base_branch, head_branch, created_at, updated_at, merged_at, closed_at,
+                 additions, deletions, changed_files, commits_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                pr.repository_id, pr.number, pr.title, pr.body,
+                pr.state.value, pr.author_login, pr.base_branch, pr.head_branch,
+                pr.created_at.isoformat() if pr.created_at else None,
+                pr.updated_at.isoformat() if pr.updated_at else None,
+                pr.merged_at.isoformat() if pr.merged_at else None,
+                pr.closed_at.isoformat() if pr.closed_at else None,
+                pr.additions, pr.deletions, pr.changed_files, pr.commits_count,
+            ))
+            pr_id = cursor.lastrowid
+        
+        self.conn.commit()
+        return pr_id
+    
+    def find_prs_in_range(
+        self, 
+        repository_id: int, 
+        start_time: datetime, 
+        end_time: datetime
+    ) -> List[Dict[str, Any]]:
+        """Find PRs created or updated within a time range."""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT id, number, title, state, author_login, head_branch,
+                   created_at, merged_at, additions, deletions, changed_files
+            FROM pull_requests 
+            WHERE repository_id = ? 
+            AND (
+                (created_at >= ? AND created_at <= ?)
+                OR (updated_at >= ? AND updated_at <= ?)
+                OR (merged_at >= ? AND merged_at <= ?)
+            )
+            ORDER BY created_at DESC
+        """, (
+            repository_id, 
+            start_time.isoformat(), end_time.isoformat(),
+            start_time.isoformat(), end_time.isoformat(),
+            start_time.isoformat(), end_time.isoformat()
+        ))
+        return [{
+            "id": row[0], "number": row[1], "title": row[2], "state": row[3],
+            "author_login": row[4], "head_branch": row[5], "created_at": row[6],
+            "merged_at": row[7], "additions": row[8], "deletions": row[9],
+            "changed_files": row[10],
+        } for row in cursor.fetchall()]
+    
+    def get_pull_request(self, repository_id: int, number: int) -> Optional[Dict[str, Any]]:
+        """Get a PR by number."""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT id, repository_id, number, title, body, state, author_login,
+                   base_branch, head_branch, created_at, updated_at, merged_at,
+                   closed_at, additions, deletions, changed_files, commits_count
+            FROM pull_requests WHERE repository_id = ? AND number = ?
+        """, (repository_id, number))
+        row = cursor.fetchone()
+        if not row:
+            return None
+        return {
+            "id": row[0], "repository_id": row[1], "number": row[2],
+            "title": row[3], "body": row[4], "state": row[5],
+            "author_login": row[6], "base_branch": row[7], "head_branch": row[8],
+            "created_at": row[9], "updated_at": row[10], "merged_at": row[11],
+            "closed_at": row[12], "additions": row[13], "deletions": row[14],
+            "changed_files": row[15], "commits_count": row[16],
+        }
+    
+    def link_pr_commit(self, pr_id: int, commit_id: int) -> None:
+        """Link a commit to a PR."""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "INSERT OR IGNORE INTO pr_commits (pr_id, commit_id) VALUES (?, ?)",
+            (pr_id, commit_id)
+        )
+        self.conn.commit()
+    
+    def add_activity_link(self, link: ChatActivityLink) -> int:
+        """
+        Add a link between a chat and GitHub activity.
+        
+        Parameters
+        ----
+        link : ChatActivityLink
+            Link to add
+            
+        Returns
+        ----
+        int
+            Link ID
+        """
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            INSERT OR REPLACE INTO chat_activity_links 
+            (chat_id, activity_type, activity_id, link_type, confidence)
+            VALUES (?, ?, ?, ?, ?)
+        """, (
+            link.chat_id, link.activity_type, link.activity_id,
+            link.link_type.value, link.confidence
+        ))
+        self.conn.commit()
+        return cursor.lastrowid
+    
+    def get_activity_for_chat(self, chat_id: int) -> List[Dict[str, Any]]:
+        """
+        Get all linked GitHub activity for a chat.
+        
+        Returns commits and PRs with their metadata.
+        """
+        cursor = self.conn.cursor()
+        
+        results = []
+        
+        # Get linked commits
+        cursor.execute("""
+            SELECT 
+                cal.activity_type, cal.link_type, cal.confidence,
+                c.id, c.sha, c.short_sha, c.message, c.author_login, c.authored_at,
+                c.additions, c.deletions, r.full_name
+            FROM chat_activity_links cal
+            JOIN commits c ON cal.activity_id = c.id
+            JOIN repositories r ON c.repository_id = r.id
+            WHERE cal.chat_id = ? AND cal.activity_type = 'commit'
+            ORDER BY c.authored_at DESC
+        """, (chat_id,))
+        
+        for row in cursor.fetchall():
+            results.append({
+                "activity_type": row[0],
+                "link_type": row[1],
+                "confidence": row[2],
+                "id": row[3],
+                "sha": row[4],
+                "short_sha": row[5],
+                "message": row[6],
+                "author_login": row[7],
+                "authored_at": row[8],
+                "additions": row[9],
+                "deletions": row[10],
+                "repository": row[11],
+            })
+        
+        # Get linked PRs
+        cursor.execute("""
+            SELECT 
+                cal.activity_type, cal.link_type, cal.confidence,
+                p.id, p.number, p.title, p.state, p.author_login, p.head_branch,
+                p.created_at, p.merged_at, p.additions, p.deletions, r.full_name
+            FROM chat_activity_links cal
+            JOIN pull_requests p ON cal.activity_id = p.id
+            JOIN repositories r ON p.repository_id = r.id
+            WHERE cal.chat_id = ? AND cal.activity_type = 'pr'
+            ORDER BY p.created_at DESC
+        """, (chat_id,))
+        
+        for row in cursor.fetchall():
+            results.append({
+                "activity_type": row[0],
+                "link_type": row[1],
+                "confidence": row[2],
+                "id": row[3],
+                "number": row[4],
+                "title": row[5],
+                "state": row[6],
+                "author_login": row[7],
+                "head_branch": row[8],
+                "created_at": row[9],
+                "merged_at": row[10],
+                "additions": row[11],
+                "deletions": row[12],
+                "repository": row[13],
+            })
+        
+        return results
+    
+    def get_chats_for_activity(
+        self, 
+        activity_type: str, 
+        activity_id: int
+    ) -> List[Dict[str, Any]]:
+        """Get all chats linked to a specific commit or PR."""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT c.id, c.cursor_composer_id, c.title, c.mode, c.created_at,
+                   cal.link_type, cal.confidence
+            FROM chats c
+            JOIN chat_activity_links cal ON c.id = cal.chat_id
+            WHERE cal.activity_type = ? AND cal.activity_id = ?
+            ORDER BY cal.confidence DESC, c.created_at DESC
+        """, (activity_type, activity_id))
+        
+        return [{
+            "id": row[0], "composer_id": row[1], "title": row[2],
+            "mode": row[3], "created_at": row[4], "link_type": row[5],
+            "confidence": row[6],
+        } for row in cursor.fetchall()]
+    
+    def count_commits(self, repository_id: Optional[int] = None) -> int:
+        """Count commits, optionally filtered by repository."""
+        cursor = self.conn.cursor()
+        if repository_id:
+            cursor.execute(
+                "SELECT COUNT(*) FROM commits WHERE repository_id = ?", 
+                (repository_id,)
+            )
+        else:
+            cursor.execute("SELECT COUNT(*) FROM commits")
+        return cursor.fetchone()[0]
+    
+    def count_pull_requests(self, repository_id: Optional[int] = None) -> int:
+        """Count PRs, optionally filtered by repository."""
+        cursor = self.conn.cursor()
+        if repository_id:
+            cursor.execute(
+                "SELECT COUNT(*) FROM pull_requests WHERE repository_id = ?",
+                (repository_id,)
+            )
+        else:
+            cursor.execute("SELECT COUNT(*) FROM pull_requests")
+        return cursor.fetchone()[0]
+    
+    def count_activity_links(self) -> Dict[str, int]:
+        """Count activity links by type."""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT activity_type, COUNT(*) FROM chat_activity_links
+            GROUP BY activity_type
+        """)
+        return {row[0]: row[1] for row in cursor.fetchall()}
 
