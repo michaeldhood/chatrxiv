@@ -211,6 +211,12 @@
                 <span class="messages-count {% if (chat.messages_count or 0) == 0 %}empty{% else %}non-empty{% endif %}">
                     {{ chat.messages_count or 0 }} message{{ 's' if (chat.messages_count or 0) != 1 else '' }}
                 </span>
+                <span class="word-count" title="{{ chat.word_count or 0 }} words">
+                    {{ chat.word_count or 0 }} words
+                </span>
+                <span class="tshirt-size" title="T-shirt size based on word count">
+                    [{{ chat.tshirt_size or 'XS' }}]
+                </span>
                 <span>{{ chat.created_at[:10] if chat.created_at else 'Unknown' }}</span>
                 {% if chat.workspace_path %}
                 <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; opacity: 0.7;">{{ chat.workspace_path }}</span>
