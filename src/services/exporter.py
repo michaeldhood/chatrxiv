@@ -58,6 +58,8 @@ class ChatExporter:
                 f.write(f"**Created:** {chat['created_at']}  \n")
                 if chat.get('workspace_path'):
                     f.write(f"**Workspace:** {chat['workspace_path']}  \n")
+                if chat.get('thinking_count', 0) > 0:
+                    f.write(f"**Thinking bubbles:** {chat['thinking_count']}  \n")
                 f.write("\n")
                 
                 # Write messages
