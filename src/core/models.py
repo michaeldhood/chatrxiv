@@ -98,6 +98,8 @@ class Chat:
     source: str = "cursor"  # "cursor" or "legacy"
     messages: List[Message] = None
     relevant_files: List[str] = None
+    model: Optional[str] = None  # AI model used (e.g., "claude-3-5-sonnet-20241022")
+    estimated_cost: Optional[float] = None  # Estimated cost in USD
 
     def __post_init__(self):
         """Initialize default values."""
@@ -116,5 +118,38 @@ class Chat:
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "last_updated_at": self.last_updated_at.isoformat() if self.last_updated_at else None,
             "source": self.source,
+            "model": self.model,
+            "estimated_cost": self.estimated_cost,
+        }
+
+
+@dataclass
+class CursorActivity:
+    """Represents a cursor activity/usage event."""
+    id: Optional[int] = None
+    timestamp: datetime = None
+    activity_type: str = ""  # e.g., "chat", "completion", "edit"
+    model: Optional[str] = None
+    workspace_hash: Optional[str] = None
+    composer_id: Optional[str] = None
+    chat_id: Optional[int] = None
+    tokens_input: Optional[int] = None
+    tokens_output: Optional[int] = None
+    cost: Optional[float] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for database storage."""
+        return {
+            "timestamp": self.timestamp.isoformat() if self.timestamp else None,
+            "activity_type": self.activity_type,
+            "model": self.model,
+            "workspace_hash": self.workspace_hash,
+            "composer_id": self.composer_id,
+            "chat_id": self.chat_id,
+            "tokens_input": self.tokens_input,
+            "tokens_output": self.tokens_output,
+            "cost": self.cost,
+            "metadata": json.dumps(self.metadata) if self.metadata else None,
         }
 
