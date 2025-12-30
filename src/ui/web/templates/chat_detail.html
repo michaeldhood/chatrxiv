@@ -21,6 +21,34 @@
         font-weight: 600;
         color: var(--text-primary);
         margin-bottom: 12px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+    
+    .chat-header h2 .title-text {
+        flex: 1;
+    }
+    
+    .chat-header .favorite-btn {
+        background: none;
+        border: none;
+        font-size: 24px;
+        cursor: pointer;
+        color: var(--text-muted);
+        padding: 4px;
+        border-radius: 4px;
+        transition: all 0.15s;
+        line-height: 1;
+    }
+    
+    .chat-header .favorite-btn:hover {
+        color: #ffd700;
+        transform: scale(1.1);
+    }
+    
+    .chat-header .favorite-btn.favorited {
+        color: #ffd700;
     }
     
     .chat-header .edit-link {
@@ -231,7 +259,8 @@
 <div class="chat-container">
     <div class="chat-header">
         <h2>
-            {{ chat.title or 'Untitled Chat' }}
+            <button class="favorite-btn" data-favorite-id="{{ chat.id }}" onclick="toggleFavorite({{ chat.id }}, event)" title="Add to favorites">☆</button>
+            <span class="title-text">{{ chat.title or 'Untitled Chat' }}</span>
             <a href="#" class="edit-link">edit</a>
         </h2>
         <div class="chat-meta">

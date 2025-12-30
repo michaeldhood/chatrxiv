@@ -305,6 +305,35 @@
         filter: brightness(1.2);
     }
     
+    /* Favorite button */
+    .favorite-btn {
+        position: absolute;
+        top: 16px;
+        right: 16px;
+        background: none;
+        border: none;
+        font-size: 20px;
+        cursor: pointer;
+        color: var(--text-muted);
+        padding: 4px;
+        border-radius: 4px;
+        transition: all 0.15s;
+        line-height: 1;
+    }
+    
+    .favorite-btn:hover {
+        color: #ffd700;
+        transform: scale(1.1);
+    }
+    
+    .favorite-btn.favorited {
+        color: #ffd700;
+    }
+    
+    .chat-item {
+        position: relative;
+    }
+    
     .no-facets {
         font-size: 13px;
         color: var(--text-muted);
@@ -394,6 +423,7 @@
             {% if results %}
                 {% for chat in results %}
                 <div class="chat-item">
+                    <button class="favorite-btn" data-favorite-id="{{ chat.id }}" onclick="toggleFavorite({{ chat.id }}, event)" title="Add to favorites">☆</button>
                     <h3><a href="{{ url_for('chat_detail', chat_id=chat.id) }}">{{ chat.title or 'Untitled Chat' }}</a></h3>
                     {% if chat.snippet %}
                     <div class="search-snippet">{{ chat.snippet | safe }}</div>

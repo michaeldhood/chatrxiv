@@ -49,10 +49,217 @@
             min-height: 100vh;
         }
         
+        .page-wrapper {
+            display: flex;
+            min-height: 100vh;
+        }
+        
+        .main-content {
+            flex: 1;
+            transition: margin-right 0.3s ease;
+        }
+        
+        .main-content.sidebar-open {
+            margin-right: 320px;
+        }
+        
         .container {
             max-width: 1000px;
             margin: 0 auto;
             padding: 24px;
+        }
+        
+        /* Favorites Sidebar */
+        .favorites-sidebar {
+            position: fixed;
+            top: 0;
+            right: -320px;
+            width: 320px;
+            height: 100vh;
+            background: var(--bg-secondary);
+            border-left: 1px solid var(--border-color);
+            z-index: 100;
+            transition: right 0.3s ease;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .favorites-sidebar.open {
+            right: 0;
+        }
+        
+        .favorites-header {
+            padding: 20px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .favorites-header h2 {
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .favorites-header h2 .star-icon {
+            color: #ffd700;
+        }
+        
+        .favorites-header .count {
+            font-size: 12px;
+            padding: 2px 8px;
+            background: var(--bg-tertiary);
+            border-radius: 12px;
+            color: var(--text-secondary);
+        }
+        
+        .favorites-close {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 18px;
+            padding: 4px 8px;
+            border-radius: 4px;
+            transition: all 0.15s;
+        }
+        
+        .favorites-close:hover {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+        
+        .favorites-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 12px;
+        }
+        
+        .favorites-empty {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--text-muted);
+        }
+        
+        .favorites-empty .star-icon {
+            font-size: 32px;
+            opacity: 0.5;
+            margin-bottom: 12px;
+        }
+        
+        .favorite-item {
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            cursor: pointer;
+            transition: all 0.15s;
+            position: relative;
+        }
+        
+        .favorite-item:hover {
+            border-color: var(--accent-blue);
+            background: var(--bg-hover);
+        }
+        
+        .favorite-item .title {
+            font-weight: 500;
+            font-size: 13px;
+            color: var(--text-primary);
+            margin-bottom: 6px;
+            padding-right: 24px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        .favorite-item .meta {
+            font-size: 11px;
+            color: var(--text-muted);
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        
+        .favorite-item .remove-btn {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            font-size: 14px;
+            padding: 4px;
+            border-radius: 4px;
+            opacity: 0;
+            transition: all 0.15s;
+        }
+        
+        .favorite-item:hover .remove-btn {
+            opacity: 1;
+        }
+        
+        .favorite-item .remove-btn:hover {
+            background: rgba(255, 100, 100, 0.2);
+            color: #ff6464;
+        }
+        
+        /* Favorites toggle button */
+        .favorites-toggle {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 14px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            color: var(--text-primary);
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            transition: all 0.15s;
+        }
+        
+        .favorites-toggle:hover {
+            border-color: var(--accent-blue);
+            background: var(--bg-hover);
+        }
+        
+        .favorites-toggle.active {
+            background: rgba(255, 215, 0, 0.15);
+            border-color: #ffd700;
+            color: #ffd700;
+        }
+        
+        .favorites-toggle .star-icon {
+            color: #ffd700;
+        }
+        
+        .favorites-toggle .badge {
+            font-size: 11px;
+            padding: 2px 6px;
+            background: var(--bg-hover);
+            border-radius: 10px;
+            color: var(--text-secondary);
+        }
+        
+        .favorites-toggle.active .badge {
+            background: rgba(255, 215, 0, 0.2);
+            color: #ffd700;
+        }
+        
+        /* Header layout update */
+        .header-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
         }
         
         header {
@@ -546,23 +753,49 @@
     {% block extra_head %}{% endblock %}
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>Cursor Chats</h1>
-            <nav>
-                <a href="{{ url_for('index') }}">All Chats</a>
-                <a href="{{ url_for('database_view') }}">Database View</a>
-            </nav>
-            <form class="search-form" action="{{ url_for('search') }}" method="get" id="search-form">
-                <input type="text" name="q" id="search-input" placeholder="Search chats... (⌘K)" value="{{ request.args.get('q', '') }}" autocomplete="off">
-                <button type="submit">Search</button>
-                <div class="instant-search-results" id="instant-search-results">
-                    <!-- Results populated by JavaScript -->
-                </div>
-            </form>
-        </header>
+    <div class="page-wrapper">
+        <div class="main-content" id="main-content">
+            <div class="container">
+                <header>
+                    <div class="header-top">
+                        <h1>Cursor Chats</h1>
+                        <button class="favorites-toggle" id="favorites-toggle" onclick="toggleFavoritesSidebar()">
+                            <span class="star-icon">★</span>
+                            Favorites
+                            <span class="badge" id="favorites-count">0</span>
+                        </button>
+                    </div>
+                    <nav>
+                        <a href="{{ url_for('index') }}">All Chats</a>
+                        <a href="{{ url_for('database_view') }}">Database View</a>
+                    </nav>
+                    <form class="search-form" action="{{ url_for('search') }}" method="get" id="search-form">
+                        <input type="text" name="q" id="search-input" placeholder="Search chats... (⌘K)" value="{{ request.args.get('q', '') }}" autocomplete="off">
+                        <button type="submit">Search</button>
+                        <div class="instant-search-results" id="instant-search-results">
+                            <!-- Results populated by JavaScript -->
+                        </div>
+                    </form>
+                </header>
+                
+                {% block content %}{% endblock %}
+            </div>
+        </div>
         
-        {% block content %}{% endblock %}
+        <!-- Favorites Sidebar -->
+        <aside class="favorites-sidebar" id="favorites-sidebar">
+            <div class="favorites-header">
+                <h2><span class="star-icon">★</span> Favorites <span class="count" id="sidebar-favorites-count">0</span></h2>
+                <button class="favorites-close" onclick="toggleFavoritesSidebar()">×</button>
+            </div>
+            <div class="favorites-list" id="favorites-list">
+                <div class="favorites-empty">
+                    <div class="star-icon">☆</div>
+                    <p>No favorites yet</p>
+                    <p style="font-size: 12px; margin-top: 8px;">Click the ★ icon on any chat to add it here</p>
+                </div>
+            </div>
+        </aside>
     </div>
     
     <script>
@@ -821,6 +1054,168 @@
                     e.preventDefault();
                     searchInput.focus();
                     searchInput.select();
+                }
+            });
+        })();
+        
+        // =============================================================
+        // Favorites Sidebar
+        // =============================================================
+        (function() {
+            window.favoritesData = [];
+            window.favoriteIds = new Set();
+            
+            // Toggle sidebar visibility
+            window.toggleFavoritesSidebar = function() {
+                const sidebar = document.getElementById('favorites-sidebar');
+                const mainContent = document.getElementById('main-content');
+                const toggle = document.getElementById('favorites-toggle');
+                
+                sidebar.classList.toggle('open');
+                mainContent.classList.toggle('sidebar-open');
+                toggle.classList.toggle('active');
+                
+                // Save preference
+                localStorage.setItem('favorites-sidebar-open', sidebar.classList.contains('open'));
+            };
+            
+            // Render favorites list
+            function renderFavorites(favorites) {
+                const list = document.getElementById('favorites-list');
+                const countBadge = document.getElementById('favorites-count');
+                const sidebarCount = document.getElementById('sidebar-favorites-count');
+                
+                countBadge.textContent = favorites.length;
+                sidebarCount.textContent = favorites.length;
+                
+                // Update global tracking
+                window.favoritesData = favorites;
+                window.favoriteIds = new Set(favorites.map(f => f.id));
+                
+                // Update all favorite buttons on the page
+                updateAllFavoriteButtons();
+                
+                if (favorites.length === 0) {
+                    list.innerHTML = `
+                        <div class="favorites-empty">
+                            <div class="star-icon">☆</div>
+                            <p>No favorites yet</p>
+                            <p style="font-size: 12px; margin-top: 8px;">Click the ★ icon on any chat to add it here</p>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                list.innerHTML = favorites.map(fav => {
+                    const date = fav.created_at ? fav.created_at.substring(0, 10) : '';
+                    const msgCount = fav.messages_count || 0;
+                    return `
+                        <div class="favorite-item" onclick="window.location.href='/chat/${fav.id}'">
+                            <div class="title">${escapeHtml(fav.title || 'Untitled Chat')}</div>
+                            <div class="meta">
+                                <span class="badge ${fav.mode || 'chat'}">${fav.mode || 'chat'}</span>
+                                <span>${msgCount} msg${msgCount !== 1 ? 's' : ''}</span>
+                                ${date ? `<span>${date}</span>` : ''}
+                            </div>
+                            <button class="remove-btn" onclick="event.stopPropagation(); removeFavorite(${fav.id})" title="Remove from favorites">×</button>
+                        </div>
+                    `;
+                }).join('');
+            }
+            
+            // Load favorites from API
+            window.loadFavorites = async function() {
+                try {
+                    const response = await fetch('/api/favorites');
+                    const data = await response.json();
+                    renderFavorites(data.favorites || []);
+                } catch (error) {
+                    console.error('Error loading favorites:', error);
+                }
+            };
+            
+            // Toggle favorite status for a chat
+            window.toggleFavorite = async function(chatId, event) {
+                if (event) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                }
+                
+                try {
+                    const response = await fetch(`/api/favorites/${chatId}/toggle`, { method: 'POST' });
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        // Reload favorites list
+                        await loadFavorites();
+                        
+                        // Update UI immediately
+                        const btn = document.querySelector(`[data-favorite-id="${chatId}"]`);
+                        if (btn) {
+                            if (data.is_favorite) {
+                                btn.classList.add('favorited');
+                                btn.innerHTML = '★';
+                                btn.title = 'Remove from favorites';
+                            } else {
+                                btn.classList.remove('favorited');
+                                btn.innerHTML = '☆';
+                                btn.title = 'Add to favorites';
+                            }
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error toggling favorite:', error);
+                }
+            };
+            
+            // Remove favorite (from sidebar)
+            window.removeFavorite = async function(chatId) {
+                try {
+                    const response = await fetch(`/api/favorites/${chatId}`, { method: 'DELETE' });
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        await loadFavorites();
+                    }
+                } catch (error) {
+                    console.error('Error removing favorite:', error);
+                }
+            };
+            
+            // Update all favorite buttons on the page
+            function updateAllFavoriteButtons() {
+                document.querySelectorAll('[data-favorite-id]').forEach(btn => {
+                    const chatId = parseInt(btn.dataset.favoriteId);
+                    if (window.favoriteIds.has(chatId)) {
+                        btn.classList.add('favorited');
+                        btn.innerHTML = '★';
+                        btn.title = 'Remove from favorites';
+                    } else {
+                        btn.classList.remove('favorited');
+                        btn.innerHTML = '☆';
+                        btn.title = 'Add to favorites';
+                    }
+                });
+            }
+            
+            // Escape HTML helper
+            function escapeHtml(text) {
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+            
+            // Initialize on page load
+            document.addEventListener('DOMContentLoaded', function() {
+                // Load favorites
+                loadFavorites();
+                
+                // Restore sidebar state
+                const sidebarOpen = localStorage.getItem('favorites-sidebar-open') === 'true';
+                if (sidebarOpen) {
+                    document.getElementById('favorites-sidebar').classList.add('open');
+                    document.getElementById('main-content').classList.add('sidebar-open');
+                    document.getElementById('favorites-toggle').classList.add('active');
                 }
             });
         })();

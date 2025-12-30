@@ -133,6 +133,15 @@ class ChatDatabase:
             )
         """)
         
+        # Favorites table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS favorites (
+                chat_id INTEGER PRIMARY KEY,
+                added_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE
+            )
+        """)
+        
         # FTS5 virtual table for full-text search on messages
         cursor.execute("""
             CREATE VIRTUAL TABLE IF NOT EXISTS message_fts USING fts5(
@@ -1493,4 +1502,190 @@ class ChatDatabase:
         logger.info("Starting unified FTS index rebuild...")
         self._rebuild_unified_fts()
         logger.info("Unified FTS index rebuild complete")
+    
+    # =============================================================
+    # Favorites Management
+    # =============================================================
+    
+    def add_favorite(self, chat_id: int) -> bool:
+        """
+        Add a chat to favorites.
+        
+        Parameters
+        ----
+        chat_id : int
+            Chat ID to favorite
+            
+        Returns
+        ----
+        bool
+            True if added, False if already favorited
+        """
+        cursor = self.conn.cursor()
+        try:
+            cursor.execute(
+                "INSERT INTO favorites (chat_id) VALUES (?)",
+                (chat_id,)
+            )
+            self.conn.commit()
+            logger.debug("Added chat %d to favorites", chat_id)
+            return True
+        except sqlite3.IntegrityError:
+            # Already favorited or chat doesn't exist
+            return False
+    
+    def remove_favorite(self, chat_id: int) -> bool:
+        """
+        Remove a chat from favorites.
+        
+        Parameters
+        ----
+        chat_id : int
+            Chat ID to unfavorite
+            
+        Returns
+        ----
+        bool
+            True if removed, False if wasn't favorited
+        """
+        cursor = self.conn.cursor()
+        cursor.execute("DELETE FROM favorites WHERE chat_id = ?", (chat_id,))
+        removed = cursor.rowcount > 0
+        self.conn.commit()
+        if removed:
+            logger.debug("Removed chat %d from favorites", chat_id)
+        return removed
+    
+    def toggle_favorite(self, chat_id: int) -> bool:
+        """
+        Toggle favorite status for a chat.
+        
+        Parameters
+        ----
+        chat_id : int
+            Chat ID to toggle
+            
+        Returns
+        ----
+        bool
+            True if now favorited, False if now unfavorited
+        """
+        if self.is_favorite(chat_id):
+            self.remove_favorite(chat_id)
+            return False
+        else:
+            self.add_favorite(chat_id)
+            return True
+    
+    def is_favorite(self, chat_id: int) -> bool:
+        """
+        Check if a chat is favorited.
+        
+        Parameters
+        ----
+        chat_id : int
+            Chat ID to check
+            
+        Returns
+        ----
+        bool
+            True if favorited
+        """
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT 1 FROM favorites WHERE chat_id = ?", (chat_id,))
+        return cursor.fetchone() is not None
+    
+    def get_favorites(self, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+        """
+        Get all favorited chats with metadata.
+        
+        Parameters
+        ----
+        limit : int
+            Maximum number of results
+        offset : int
+            Offset for pagination
+            
+        Returns
+        ----
+        List[Dict[str, Any]]
+            List of favorited chats with full metadata
+        """
+        cursor = self.conn.cursor()
+        
+        cursor.execute("""
+            SELECT c.id, c.cursor_composer_id, c.title, c.mode, c.created_at, c.source, c.messages_count,
+                   w.workspace_hash, w.resolved_path, f.added_at
+            FROM favorites f
+            INNER JOIN chats c ON f.chat_id = c.id
+            LEFT JOIN workspaces w ON c.workspace_id = w.id
+            ORDER BY f.added_at DESC
+            LIMIT ? OFFSET ?
+        """, (limit, offset))
+        
+        results = []
+        chat_ids = []
+        for row in cursor.fetchall():
+            chat_id = row[0]
+            chat_ids.append(chat_id)
+            results.append({
+                "id": chat_id,
+                "composer_id": row[1],
+                "title": row[2],
+                "mode": row[3],
+                "created_at": row[4],
+                "source": row[5],
+                "messages_count": row[6],
+                "workspace_hash": row[7],
+                "workspace_path": row[8],
+                "favorited_at": row[9],
+                "tags": [],
+            })
+        
+        # Load tags for all chats in batch
+        if chat_ids:
+            placeholders = ','.join(['?'] * len(chat_ids))
+            cursor.execute(f"""
+                SELECT chat_id, tag FROM tags 
+                WHERE chat_id IN ({placeholders})
+                ORDER BY chat_id, tag
+            """, chat_ids)
+            
+            tags_by_chat = {}
+            for row in cursor.fetchall():
+                chat_id, tag = row
+                if chat_id not in tags_by_chat:
+                    tags_by_chat[chat_id] = []
+                tags_by_chat[chat_id].append(tag)
+            
+            for result in results:
+                result["tags"] = tags_by_chat.get(result["id"], [])
+        
+        return results
+    
+    def count_favorites(self) -> int:
+        """
+        Count total favorited chats.
+        
+        Returns
+        ----
+        int
+            Number of favorites
+        """
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM favorites")
+        return cursor.fetchone()[0]
+    
+    def get_favorite_ids(self) -> List[int]:
+        """
+        Get all favorited chat IDs (for quick lookups).
+        
+        Returns
+        ----
+        List[int]
+            List of favorited chat IDs
+        """
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT chat_id FROM favorites")
+        return [row[0] for row in cursor.fetchall()]
 

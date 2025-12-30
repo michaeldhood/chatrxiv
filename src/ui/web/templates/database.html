@@ -282,6 +282,33 @@
         color: var(--text-muted);
     }
     
+    /* Favorite column */
+    .col-favorite {
+        width: 50px;
+        text-align: center;
+    }
+    
+    .favorite-btn {
+        background: none;
+        border: none;
+        font-size: 18px;
+        cursor: pointer;
+        color: var(--text-muted);
+        padding: 4px;
+        border-radius: 4px;
+        transition: all 0.15s;
+        line-height: 1;
+    }
+    
+    .favorite-btn:hover {
+        color: #ffd700;
+        transform: scale(1.1);
+    }
+    
+    .favorite-btn.favorited {
+        color: #ffd700;
+    }
+    
     /* Date styling */
     .date-cell {
         color: var(--text-secondary);
@@ -462,6 +489,7 @@
         <table class="database-table">
             <thead>
                 <tr>
+                    <th class="col-favorite">★</th>
                     <th class="col-title {{ 'sorted-asc' if sort_by == 'title' and sort_order == 'asc' else 'sorted-desc' if sort_by == 'title' and sort_order == 'desc' else '' }}" 
                         onclick="sortBy('title')">Title</th>
                     <th class="col-mode {{ 'sorted-asc' if sort_by == 'mode' and sort_order == 'asc' else 'sorted-desc' if sort_by == 'mode' and sort_order == 'desc' else '' }}" 
@@ -479,6 +507,9 @@
             <tbody>
                 {% for chat in chats %}
                 <tr>
+                    <td class="col-favorite">
+                        <button class="favorite-btn" data-favorite-id="{{ chat.id }}" onclick="toggleFavorite({{ chat.id }}, event)" title="Add to favorites">☆</button>
+                    </td>
                     <td class="col-title">
                         <a href="{{ url_for('chat_detail', chat_id=chat.id) }}" title="{{ chat.title or 'Untitled Chat' }}">
                             {{ chat.title or 'Untitled Chat' }}

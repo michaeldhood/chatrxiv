@@ -400,6 +400,65 @@ def api_instant_search():
         db.close()
 
 
+@app.route('/api/favorites')
+def api_favorites():
+    """API endpoint to list all favorited chats."""
+    db = get_db()
+    try:
+        favorites = db.get_favorites()
+        return jsonify({
+            'favorites': favorites,
+            'count': len(favorites)
+        })
+    finally:
+        db.close()
+
+
+@app.route('/api/favorites/<int:chat_id>', methods=['POST'])
+def api_add_favorite(chat_id):
+    """API endpoint to add a chat to favorites."""
+    db = get_db()
+    try:
+        added = db.add_favorite(chat_id)
+        return jsonify({
+            'success': True,
+            'is_favorite': True,
+            'message': 'Added to favorites' if added else 'Already in favorites'
+        })
+    finally:
+        db.close()
+
+
+@app.route('/api/favorites/<int:chat_id>', methods=['DELETE'])
+def api_remove_favorite(chat_id):
+    """API endpoint to remove a chat from favorites."""
+    db = get_db()
+    try:
+        removed = db.remove_favorite(chat_id)
+        return jsonify({
+            'success': True,
+            'is_favorite': False,
+            'message': 'Removed from favorites' if removed else 'Was not in favorites'
+        })
+    finally:
+        db.close()
+
+
+@app.route('/api/favorites/<int:chat_id>/toggle', methods=['POST'])
+def api_toggle_favorite(chat_id):
+    """API endpoint to toggle favorite status for a chat."""
+    db = get_db()
+    try:
+        is_favorite = db.toggle_favorite(chat_id)
+        return jsonify({
+            'success': True,
+            'is_favorite': is_favorite,
+            'message': 'Added to favorites' if is_favorite else 'Removed from favorites'
+        })
+    finally:
+        db.close()
+
+
 @app.route('/stream')
 def stream():
     """
