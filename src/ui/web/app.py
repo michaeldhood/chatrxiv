@@ -46,30 +46,8 @@ def get_db():
 
 @app.route('/')
 def index():
-    """Home page - list all chats."""
-    db = get_db()
-    try:
-        search_service = ChatSearchService(db)
-        
-        # Get pagination and filter params
-        page = int(request.args.get('page', 1))
-        limit = 50
-        offset = (page - 1) * limit
-        empty_filter = request.args.get('filter', None)  # 'empty', 'non_empty', or None
-        
-        chats = search_service.list_chats(limit=limit, offset=offset, empty_filter=empty_filter)
-        
-        # Get total count using COUNT query with filter
-        total_chats = search_service.count_chats(empty_filter=empty_filter)
-        
-        return render_template('index.html', 
-                             chats=chats, 
-                             page=page, 
-                             total_chats=total_chats,
-                             has_next=len(chats) == limit,
-                             current_filter=empty_filter)
-    finally:
-        db.close()
+    """Home page - redirect to database view."""
+    return redirect(url_for('database_view'))
 
 
 @app.route('/database')
@@ -209,7 +187,7 @@ def search():
     query = request.args.get('q', '')
     
     if not query:
-        return redirect(url_for('index'))
+        return redirect(url_for('database_view'))
     
     db = get_db()
     try:

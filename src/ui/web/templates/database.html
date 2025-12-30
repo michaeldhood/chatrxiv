@@ -363,36 +363,6 @@
         color: var(--accent-orange);
     }
     
-    /* View toggle */
-    .view-toggle {
-        display: flex;
-        gap: 4px;
-        background: var(--bg-tertiary);
-        padding: 4px;
-        border-radius: 8px;
-        border: 1px solid var(--border-color);
-    }
-    
-    .view-toggle a {
-        padding: 6px 12px;
-        border-radius: 6px;
-        font-size: 12px;
-        font-weight: 500;
-        color: var(--text-secondary);
-        text-decoration: none;
-        transition: all 0.15s;
-    }
-    
-    .view-toggle a:hover {
-        color: var(--text-primary);
-        background: var(--bg-hover);
-    }
-    
-    .view-toggle a.active {
-        background: var(--accent-blue);
-        color: white;
-    }
-    
     /* Responsive */
     @media (max-width: 768px) {
         .database-toolbar {
@@ -416,11 +386,6 @@
 {% block content %}
 <div class="database-view">
     <div class="database-toolbar">
-        <div class="view-toggle">
-            <a href="{{ url_for('index', filter=current_filter or '', page=page) }}">List</a>
-            <a href="{{ url_for('database_view', filter=current_filter or '', page=page, sort=sort_by, order=sort_order) }}" class="active">Database</a>
-        </div>
-        
         <div class="filter-group">
             <label>Filter:</label>
             <select id="filter-select" onchange="applyFilters()">
