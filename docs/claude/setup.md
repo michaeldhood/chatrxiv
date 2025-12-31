@@ -1,164 +1,260 @@
-# Claude.ai Integration Setup
+# API Discovery Process
 
-This guide explains how to configure the Claude.ai chat source for aggregation.
+This document describes the standardized process for discovering and documenting internal web application APIs (like Claude.ai, ChatGPT, etc.) using browser DevTools and HAR file analysis.
 
 ## Overview
 
-The Claude.ai integration uses dlt (data load tool) to fetch conversations from Claude.ai's internal API with automatic incremental sync. Only conversations updated since the last sync are fetched.
+Instead of manually copy-pasting individual network requests, we use **HAR (HTTP Archive)** files - a standardized format that captures all browser network traffic in a single exportable file.
 
-## Prerequisites
+**Time savings**: ~30 minutes of manual copy-paste → ~2 minutes with HAR export
 
-1. A Claude.ai account with conversations
-2. Access to your browser's DevTools to extract session cookies
+---
 
-## Configuration
+## The Process
 
-### Option 1: dlt Secrets File (Recommended)
+### Step 1: Prepare the Browser
 
-1. Copy the example secrets file:
+1. Open the target web application in Chrome/Firefox/Edge
+2. **Log in** with your credentials (API endpoints require authentication)
+3. Open DevTools (F12 or Cmd+Option+I)
+4. Go to the **Network** tab
+5. Ensure "Preserve log" is checked (to keep requests across page navigations)
+6. Optional: Clear existing requests for a clean capture
+
+### Step 2: Capture Traffic
+
+Exercise the features you want to document:
+
+| To Document | Actions to Take |
+|-------------|-----------------|
+| Conversations | Open conversations, send messages, receive responses |
+| Settings | Visit settings pages, toggle options |
+| File uploads | Upload an image or document |
+| Artifacts | Create or view artifacts |
+| Projects | Create/switch projects |
+| Search | Use search functionality |
+| Streaming | Send a message and let it stream back |
+
+**Tip**: Be thorough but focused. Each action generates network requests that will be documented.
+
+### Step 3: Export HAR File
+
+1. Right-click anywhere in the Network tab
+2. Select **"Save all as HAR with content"**
+3. Save the file (e.g., `claude-2025-12-29.har`)
+
+**Important**: HAR files contain your session cookies and potentially sensitive data. Do not share them publicly.
+
+### Step 4: Run the Parser
+
+```bash
+# Basic usage
+python scripts/api_discovery/har_parser.py claude.har --output docs/claude/api-reference.md --app-name "Claude.ai"
+
+# With verbose output to see what's being captured
+python scripts/api_discovery/har_parser.py claude.har -v --output docs/claude/api-reference.md --app-name "Claude.ai"
+
+# Custom API patterns (if the app doesn't use /api/)
+python scripts/api_discovery/har_parser.py openai.har --api-pattern "/backend-api/" --api-pattern "/v1/"
+```
+
+### Step 5: Review and Refine
+
+The auto-generated documentation is a starting point. You should:
+
+1. **Add context** - What does each endpoint actually do?
+2. **Document parameters** - What are the query params and body fields for?
+3. **Add examples** - Realistic request/response examples
+4. **Note gotchas** - Rate limits, auth requirements, error responses
+5. **Remove noise** - Analytics endpoints you don't care about
+
+---
+
+## Application-Specific Notes
+
+### Claude.ai
+
+**API Patterns**: `/api/`, `a-api.anthropic.com`
+
+**Key Endpoints to Capture**:
+- Open any conversation → GET conversation
+- Send a message → POST completion (streaming)
+- View artifacts → GET artifacts
+- Change settings → Various settings endpoints
+
+**Auth**: Session cookies (automatic via browser)
+
+### ChatGPT / OpenAI
+
+**API Patterns**: `/backend-api/`, `chat.openai.com/api/`
+
+**Key Endpoints to Capture**:
+- Chat history → conversation list
+- Send message → POST conversation
+- GPT-4/DALL-E usage → generation endpoints
+
+**Auth**: Session cookies + potentially `__cf_bm` Cloudflare token
+
+### Notion
+
+**API Patterns**: `/api/v3/`, `notion-api.workers.dev`
+
+**Key Endpoints to Capture**:
+- Page loads → getPage, loadPageChunk
+- Edits → submitTransaction
+- Search → search
+
+**Auth**: Session cookies
+
+---
+
+## Extracting Session Cookies for Readers
+
+After discovering APIs via HAR files, you can use the `ClaudeReader` and `ChatGPTReader` classes to programmatically fetch conversations. These readers require session cookies/tokens extracted from your browser.
+
+### For Claude.ai
+
+1. Open **claude.ai** in your browser and ensure you're logged in
+2. Open **DevTools** (F12 or Cmd+Option+I)
+3. Go to **Application** tab → **Cookies** → `https://claude.ai`
+4. Find the cookie named **`sessionKey`**
+5. Copy its **Value**
+6. Set as environment variable:
    ```bash
-   cp .dlt/secrets.toml.example .dlt/secrets.toml
+   export CLAUDE_SESSION_COOKIE="<paste-value-here>"
+   ```
+7. Also get your **Organization ID**:
+   - Visit `https://claude.ai/settings/account`
+   - The URL will contain `?organizationId=YOUR-ORG-ID-HERE`
+   - Or check the Network tab when loading that page
+   ```bash
+   export CLAUDE_ORG_ID="<your-org-id>"
    ```
 
-2. Edit `.dlt/secrets.toml` and fill in your values:
-   ```toml
-   [sources.claude_conversations]
-   org_id = "your-org-id-here"
-   session_cookie = "your-session-cookie-here"
+**Usage:**
+```python
+from src.readers import ClaudeReader
+
+reader = ClaudeReader()  # Uses env vars automatically
+conversations = reader.get_conversation_list()
+```
+
+### For ChatGPT
+
+1. Open **chatgpt.com** in your browser and ensure you're logged in
+2. Open **DevTools** (F12 or Cmd+Option+I)
+3. Go to **Application** tab → **Cookies** → `https://chatgpt.com`
+4. Find the cookie named **`__Secure-next-auth.session-token`**
+5. Copy its **Value**
+6. Set as environment variable:
+   ```bash
+   export CHATGPT_SESSION_TOKEN="<paste-value-here>"
    ```
 
-### Option 2: Environment Variables
+**Usage:**
+```python
+from src.readers import ChatGPTReader
 
-Set these environment variables:
-```bash
-export CLAUDE_ORG_ID="your-org-id-here"
-export CLAUDE_SESSION_COOKIE="your-session-cookie-here"
+reader = ChatGPTReader()  # Uses env var automatically
+conversations = reader.get_conversation_list()
 ```
 
-## Getting Your Organization ID
+### Alternative: dlt Secrets
 
-1. Go to https://claude.ai/settings/account
-2. Look at the URL in your browser's address bar
-3. Find the `organizationId` parameter: `?organizationId=YOUR-ORG-ID-HERE`
-4. Copy the UUID value (format: `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`)
+Instead of environment variables, you can use dlt secrets (`.dlt/secrets.toml`):
 
-Example URL:
-```
-https://claude.ai/settings/account?organizationId=5a6a80ed-8f4e-4041-9040-a76c57cd0b16
-```
-In this case, your org_id is `5a6a80ed-8f4e-4041-9040-a76c57cd0b16`
+```toml
+[sources.claude_conversations]
+org_id = "your-org-id-here"
+session_cookie = "your-session-cookie-here"
 
-## Getting Your Session Cookie
-
-### Chrome/Edge (Chromium)
-
-1. Log into claude.ai in your browser
-2. Open DevTools:
-   - Press `F12` or `Ctrl+Shift+I` (Windows/Linux)
-   - Press `Cmd+Option+I` (macOS)
-3. Go to the **Application** tab (or **Storage** in Firefox)
-4. In the left sidebar, expand **Cookies** → `https://claude.ai`
-5. Find the cookie named `sessionKey`
-6. Copy its **Value** (it's a long string)
-
-### Firefox
-
-1. Log into claude.ai in your browser
-2. Open DevTools (`F12`)
-3. Go to the **Storage** tab
-4. Expand **Cookies** → `https://claude.ai`
-5. Find `sessionKey` and copy its value
-
-### Safari
-
-1. Enable Developer menu: Safari → Preferences → Advanced → "Show Develop menu"
-2. Log into claude.ai
-3. Develop → Show Web Inspector
-4. Storage tab → Cookies → `claude.ai`
-5. Find `sessionKey` and copy its value
-
-## Security Notes
-
-⚠️ **Important**: Your session cookie is sensitive! It provides access to your Claude.ai account.
-
-- **Never commit** `.dlt/secrets.toml` to version control
-- The `.dlt/secrets.toml` file is already in `.gitignore`
-- If you use environment variables, don't log them or share them
-- Session cookies expire periodically - you may need to refresh them
-
-## Usage
-
-Once configured, ingest Claude conversations:
-
-```bash
-# Ingest only Claude.ai conversations
-python -m src ingest --source claude
-
-# Ingest both Cursor and Claude.ai
-python -m src ingest --source all
-
-# Ingest only Cursor (default)
-python -m src ingest --source cursor
+[sources.chatgpt_conversations]
+session_token = "your-session-token-here"
 ```
 
-## How Incremental Sync Works
+**Security Note:** Session cookies are sensitive - they provide full access to your account. Never commit them to git or share them publicly.
 
-dlt automatically tracks the `updated_at` timestamp of the last synced conversation. On subsequent runs:
+---
 
-- Only conversations updated since the last sync are fetched
-- State is stored in `.dlt/pipelines/claude_conversations/`
-- You can delete this folder to force a full re-sync
+## HAR File Structure
+
+Understanding HAR helps with debugging:
+
+```json
+{
+  "log": {
+    "version": "1.2",
+    "creator": { "name": "Chrome", "version": "..." },
+    "entries": [
+      {
+        "request": {
+          "method": "POST",
+          "url": "https://claude.ai/api/...",
+          "headers": [...],
+          "postData": {
+            "mimeType": "application/json",
+            "text": "{...}"
+          }
+        },
+        "response": {
+          "status": 200,
+          "statusText": "OK",
+          "headers": [...],
+          "content": {
+            "size": 1234,
+            "mimeType": "application/json",
+            "text": "{...}"
+          }
+        },
+        "startedDateTime": "2025-12-29T...",
+        "time": 234
+      }
+    ]
+  }
+}
+```
+
+---
 
 ## Troubleshooting
 
-### "org_id must be provided" Error
+### "No API requests found"
 
-- Check that your `.dlt/secrets.toml` file exists and has the correct section name
-- Verify the `org_id` value is correct (UUID format)
-- Try using environment variables instead
+- Check that you're logged in
+- The app might use different API patterns (try `--api-pattern` flag)
+- WebSocket connections aren't in HAR - these need manual inspection
 
-### "session_cookie must be provided" Error
+### Response bodies are empty
 
-- Make sure you copied the entire cookie value (it's very long)
-- Check that you're logged into claude.ai in your browser
-- The cookie may have expired - extract a fresh one
+- Some browsers don't include large responses
+- Try Firefox - it often has better HAR export
+- Check if responses are compressed (look for gzip headers)
 
-### "403 Forbidden" or Authentication Errors
+### SSE/Streaming responses are truncated
 
-- Your session cookie has expired - extract a new one
-- Make sure you're copying the `sessionKey` cookie, not other cookies
-- Verify you're logged into the correct Claude.ai account
+- This is expected - HAR captures the final state
+- For streaming APIs, note it's SSE and document the event format manually
 
-### No Conversations Found
+### Sensitive data in HAR
 
-- Check that you have conversations in your Claude.ai account
-- Verify your organization ID is correct
-- Try deleting `.dlt/pipelines/claude_conversations/` to reset state
+- HAR files contain cookies and auth tokens
+- Never commit HAR files to git
+- Add `*.har` to `.gitignore`
 
-## API Rate Limits
+---
 
-Claude.ai may rate limit requests. If you encounter rate limiting:
+## Extending for New Apps
 
-- The integration will log errors but continue processing
-- Wait a few minutes and try again
-- dlt's incremental sync means you won't re-fetch already synced conversations
+To add a new application to this workflow:
 
-## Data Mapping
+1. Identify the API base URL pattern
+2. Note any special auth mechanisms
+3. List the key features/endpoints to capture
+4. Add a section to this document
 
-Claude conversations are mapped to the unified chat database:
+---
 
-| Claude.ai Field | Database Field |
-|-----------------|----------------|
-| `uuid` | `cursor_composer_id` (reused) |
-| `name` | `title` |
-| `created_at` | `created_at` |
-| `updated_at` | `last_updated_at` |
-| `chat_messages[].sender` | `messages[].role` |
-| `chat_messages[].content[].text` | `messages[].text` |
-| - | `source` = `"claude.ai"` |
+## Related Files
 
-## Related Documentation
-
-- [Claude.ai Internal API Reference](api-reference.md)
-- [Database Schema](../schema/aggregated-database.md)
-
+- `scripts/api_discovery/har_parser.py` - The HAR parsing script
+- `docs/claude/api-reference.md` - Claude.ai API documentation (generated)
