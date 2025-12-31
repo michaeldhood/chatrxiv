@@ -6,18 +6,16 @@ Fetches conversations from Claude.ai's internal API using direct HTTP requests.
 
 import logging
 import os
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Dict, List, Optional
 
 import dlt  # Only used for reading secrets
-import requests
+
+from .base import WebConversationReader
 
 logger = logging.getLogger(__name__)
 
-# Claude.ai API base URL
-CLAUDE_API_BASE = "https://claude.ai/api/organizations"
 
-
-class ClaudeReader:
+class ClaudeReader(WebConversationReader):
     """
     Reader for Claude.ai conversations.
 
@@ -41,45 +39,38 @@ class ClaudeReader:
         session_cookie : str, optional
             Session cookie. If None, reads from dlt secrets or env var.
         """
-        # Try to get credentials from: parameter > env var > dlt secrets
-        self.org_id = org_id or os.getenv("CLAUDE_ORG_ID")
-        self.session_cookie = session_cookie or os.getenv("CLAUDE_SESSION_COOKIE")
+        self.org_id = self._resolve_org_id(org_id)
+        super().__init__(credential=session_cookie)
 
-        # Fall back to dlt secrets if not found in env
-        if not self.org_id or not self.session_cookie:
-            try:
-                secrets = dlt.secrets.get("sources.claude_conversations", {})
-                if not self.org_id:
-                    self.org_id = secrets.get("org_id")
-                if not self.session_cookie:
-                    self.session_cookie = secrets.get("session_cookie")
-            except Exception:
-                pass  # dlt secrets not available or misconfigured
+    @property
+    def api_base_url(self) -> str:
+        """Base URL for Claude.ai API."""
+        return f"https://claude.ai/api/organizations/{self.org_id}"
 
-        if not self.org_id:
-            raise ValueError(
-                "org_id must be provided via parameter, CLAUDE_ORG_ID env var, "
-                "or dlt secrets"
-            )
-        if not self.session_cookie:
-            raise ValueError(
-                "session_cookie must be provided via parameter, CLAUDE_SESSION_COOKIE "
-                "env var, or dlt secrets"
-            )
+    @property
+    def credential_env_var(self) -> str:
+        """Environment variable name for Claude session cookie."""
+        return "CLAUDE_SESSION_COOKIE"
 
-        # Build headers for API requests (mimicking browser)
-        self._headers = {
+    @property
+    def dlt_secrets_path(self) -> str:
+        """dlt secrets path for Claude credentials."""
+        return "sources.claude_conversations"
+
+    def _build_headers(self, credential: str) -> Dict[str, str]:
+        """Build HTTP headers with Claude session cookie."""
+        return {
             "Accept": "application/json",
             "Content-Type": "application/json",
-            "Cookie": f"sessionKey={self.session_cookie}",
+            "Cookie": f"sessionKey={credential}",
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         }
 
-    def _fetch_conversation_list(self) -> list:
+    def _fetch_conversation_list(self) -> List[Dict[str, Any]]:
         """Fetch list of all conversations from Claude.ai API."""
-        url = f"{CLAUDE_API_BASE}/{self.org_id}/chat_conversations"
+        url = f"{self.api_base_url}/chat_conversations"
 
-        response = requests.get(url, headers=self._headers)
+        response = self._session.get(url)
         response.raise_for_status()
 
         conversations = response.json()
@@ -88,86 +79,63 @@ class ClaudeReader:
             return []
 
         return conversations
-    
-    def get_conversation_list(self) -> List[Dict[str, Any]]:
-        """
-        Fetch conversation metadata only (no details).
-        
-        Returns
-        ----
-        List[Dict[str, Any]]
-            List of conversation metadata objects with uuid, name, updated_at, etc.
-        """
-        return self._fetch_conversation_list()
 
     def _fetch_conversation_detail(self, conv_id: str) -> Optional[Dict[str, Any]]:
         """Fetch full conversation details including messages."""
-        url = (
-            f"{CLAUDE_API_BASE}/{self.org_id}/chat_conversations/{conv_id}"
-            "?tree=True&rendering_mode=messages&render_all_tools=true"
-        )
+        url = f"{self.api_base_url}/chat_conversations/{conv_id}"
+        params = {
+            "tree": "True",
+            "rendering_mode": "messages",
+            "render_all_tools": "true",
+        }
 
         try:
-            response = requests.get(url, headers=self._headers)
+            response = self._session.get(url, params=params)
             response.raise_for_status()
             return response.json()
-        except requests.exceptions.RequestException as e:
+        except Exception as e:
             logger.error("Error fetching conversation %s: %s", conv_id, e)
             return None
 
-    def read_all_conversations(self) -> Iterator[Dict[str, Any]]:
+    def _extract_conversation_id(self, conversation: Dict[str, Any]) -> str:
+        """Extract conversation UUID from Claude conversation object."""
+        return conversation["uuid"]
+
+    def _resolve_org_id(self, param_value: Optional[str]) -> str:
         """
-        Read all Claude conversations.
-
-        Fetches the conversation list, then fetches full details for each.
-
-        Yields
-        ----
-        Dict[str, Any]
-            Full conversation objects with chat_messages array
-        """
-        logger.info("Fetching Claude conversation list...")
-
-        try:
-            conversations = self._fetch_conversation_list()
-            logger.info("Found %d conversations", len(conversations))
-
-            for i, conv_meta in enumerate(conversations, 1):
-                conv_id = conv_meta.get("uuid")
-                if not conv_id:
-                    continue
-
-                # Fetch full conversation details
-                full_conv = self._fetch_conversation_detail(conv_id)
-                if full_conv:
-                    # Merge metadata with full details
-                    full_conv.update(conv_meta)
-                    yield full_conv
-                else:
-                    # Fall back to metadata only
-                    yield conv_meta
-
-                if i % 10 == 0:
-                    logger.info("Fetched %d/%d conversations...", i, len(conversations))
-
-            logger.info("Finished fetching %d conversations", len(conversations))
-
-        except requests.exceptions.RequestException as e:
-            logger.error("Error fetching Claude conversations: %s", e)
-            raise
-
-    def read_conversation(self, conversation_id: str) -> Optional[Dict[str, Any]]:
-        """
-        Read a specific conversation by ID.
+        Resolve organization ID from parameter, environment variable, or dlt secrets.
 
         Parameters
         ----
-        conversation_id : str
-            Conversation UUID
+        param_value : Optional[str]
+            Organization ID passed to constructor
 
         Returns
         ----
-        Dict[str, Any]
-            Full conversation object, or None if not found
+        str
+            Resolved organization ID
+
+        Raises
+        ---
+        ValueError
+            If org_id cannot be resolved from any source
         """
-        return self._fetch_conversation_detail(conversation_id)
+        if param_value:
+            return param_value
+
+        env_value = os.getenv("CLAUDE_ORG_ID")
+        if env_value:
+            return env_value
+
+        try:
+            secrets = dlt.secrets.get("sources.claude_conversations", {})
+            dlt_value = secrets.get("org_id")
+            if dlt_value:
+                return dlt_value
+        except Exception:
+            pass  # dlt secrets not available or misconfigured
+
+        raise ValueError(
+            "org_id must be provided via parameter, CLAUDE_ORG_ID env var, "
+            "or dlt secrets"
+        )
