@@ -20,7 +20,7 @@ from src.cli.orchestrators.ingestion import IngestionOrchestrator
 @db_option
 @click.option(
     '--source',
-    type=click.Choice(['cursor', 'claude', 'all']),
+    type=click.Choice(['cursor', 'claude', 'chatgpt', 'all']),
     default='cursor',
     help='Source to ingest from'
 )

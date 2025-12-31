@@ -65,13 +65,13 @@ class IngestionOrchestrator:
         Resolve source specification to list of sources.
 
         Args:
-            source: Source specification ('cursor', 'claude', or 'all')
+            source: Source specification ('cursor', 'claude', 'chatgpt', or 'all')
 
         Returns:
             List of source names to ingest from
         """
         if source == 'all':
-            return ['cursor', 'claude']
+            return ['cursor', 'claude', 'chatgpt']
         return [source]
 
     def _ingest_source(
@@ -84,7 +84,7 @@ class IngestionOrchestrator:
         Ingest from a single source.
 
         Args:
-            source: Source name ('cursor' or 'claude')
+            source: Source name ('cursor', 'claude', or 'chatgpt')
             incremental: Whether to use incremental ingestion
             progress_callback: Optional progress callback
 
@@ -95,6 +95,8 @@ class IngestionOrchestrator:
             return self.aggregator.ingest_all(progress_callback, incremental=incremental)
         elif source == 'claude':
             return self.aggregator.ingest_claude(progress_callback, incremental=incremental)
+        elif source == 'chatgpt':
+            return self.aggregator.ingest_chatgpt(progress_callback, incremental=incremental)
         else:
             return {"ingested": 0, "skipped": 0, "errors": 0}
 

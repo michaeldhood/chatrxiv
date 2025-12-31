@@ -7,16 +7,28 @@ to global composer conversations, and storing normalized data.
 import logging
 import os
 from pathlib import Path
-from typing import List, Dict, Optional, Any, Tuple
+from dataclasses import dataclass
+from typing import List, Dict, Optional, Any, Tuple, Callable
 from datetime import datetime
 
 from src.core.db import ChatDatabase
 from src.core.models import Chat, Message, Workspace, ChatMode, MessageRole, MessageType
 from src.readers.workspace_reader import WorkspaceStateReader
 from src.readers.global_reader import GlobalComposerReader
-from src.readers.claude_reader import ClaudeReader
+from src.readers import ClaudeReader, ChatGPTReader
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class WebSourceConfig:
+    """Configuration for web-based conversation source ingestion."""
+    name: str                          # "claude" or "chatgpt"
+    reader_class: type                 # ClaudeReader or ChatGPTReader
+    id_field: str                      # "uuid" or "id"
+    updated_field: str                 # "updated_at" or "update_time"
+    converter: Callable                # Conversion method reference
+    timestamp_parser: Callable         # Timestamp parsing method
 
 
 class ChatAggregator:
@@ -967,48 +979,64 @@ class ChatAggregator:
         except (ValueError, TypeError):
             return None
     
-    def ingest_claude(self, progress_callback: Optional[callable] = None,
-                      incremental: bool = False) -> Dict[str, int]:
+    def _ingest_web_source(
+        self,
+        config: WebSourceConfig,
+        progress_callback: Optional[Callable] = None,
+        incremental: bool = False
+    ) -> Dict[str, int]:
         """
-        Ingest chats from Claude.ai.
+        Generic ingestion for web-based conversation sources.
+        
+        Template method that handles common ingestion flow:
+        1. Initialize reader
+        2. Fetch conversation list
+        3. Filter for incremental (if enabled)
+        4. Fetch details and convert
+        5. Store in database
         
         Parameters
         ----
-        progress_callback : callable, optional
-            Callback function(conversation_id, total, current) for progress updates
+        config : WebSourceConfig
+            Source-specific configuration
+        progress_callback : Callable, optional
+            Progress callback(conv_id, total, current)
         incremental : bool
-            If True, only fetch details for conversations that are new or updated
+            Only fetch new/updated conversations
             
         Returns
         ----
         Dict[str, int]
-            Statistics: {"ingested": count, "skipped": count, "errors": count}
+            Statistics: {ingested, skipped, errors}
         """
-        logger.info("Starting Claude.ai chat ingestion%s...", " (incremental)" if incremental else "")
+        logger.info("Starting %s chat ingestion%s...", config.name, " (incremental)" if incremental else "")
         
         try:
-            claude_reader = ClaudeReader()
+            reader = config.reader_class()
         except ValueError as e:
-            logger.error("Claude reader initialization failed: %s", e)
-            logger.error("Please configure CLAUDE_ORG_ID and CLAUDE_SESSION_COOKIE")
+            logger.error("%s reader initialization failed: %s", config.name.capitalize(), e)
+            if config.name == "claude":
+                logger.error("Please configure CLAUDE_ORG_ID and CLAUDE_SESSION_COOKIE")
+            elif config.name == "chatgpt":
+                logger.error("Please configure CHATGPT_SESSION_TOKEN")
             return {"ingested": 0, "skipped": 0, "errors": 1}
         
         stats = {"ingested": 0, "skipped": 0, "errors": 0}
         
         try:
-            # Step 1: Get conversation list (1 API call)
-            conversation_list = claude_reader.get_conversation_list()
-            logger.info("Found %d Claude conversations", len(conversation_list))
+            # Step 1: Get conversation list
+            conversation_list = reader.get_conversation_list()
+            logger.info("Found %d %s conversations", len(conversation_list), config.name)
             
             # Step 2: Filter if incremental
             conversations_to_fetch = []
             if incremental:
                 for conv_meta in conversation_list:
-                    conv_id = conv_meta.get("uuid")
+                    conv_id = conv_meta.get(config.id_field)
                     if not conv_id:
                         continue
                     
-                    api_updated_at = self._parse_claude_timestamp(conv_meta.get("updated_at"))
+                    api_updated_at = config.timestamp_parser(conv_meta.get(config.updated_field))
                     
                     # Check if we have this conversation and when it was last updated
                     db_chat = self.db.get_chat_by_composer_id(conv_id)
@@ -1037,14 +1065,14 @@ class ChatAggregator:
             
             # Step 3: Fetch details only for filtered conversations
             for idx, conv_meta in enumerate(conversations_to_fetch, 1):
-                conv_id = conv_meta.get("uuid", f"unknown-{idx}")
+                conv_id = conv_meta.get(config.id_field, f"unknown-{idx}")
                 
                 if progress_callback and total:
                     progress_callback(conv_id, total, idx)
                 
                 try:
                     # Fetch full conversation details
-                    full_conv = claude_reader._fetch_conversation_detail(conv_id)
+                    full_conv = reader._fetch_conversation_detail(conv_id)
                     if not full_conv:
                         stats["skipped"] += 1
                         continue
@@ -1053,7 +1081,7 @@ class ChatAggregator:
                     full_conv.update(conv_meta)
                     
                     # Convert to domain model
-                    chat = self._convert_claude_to_chat(full_conv)
+                    chat = config.converter(full_conv)
                     if not chat:
                         stats["skipped"] += 1
                         continue
@@ -1068,18 +1096,208 @@ class ChatAggregator:
                     stats["ingested"] += 1
                     
                     if idx % 50 == 0:
-                        logger.info("Processed %d/%d Claude conversations...", idx, total)
+                        logger.info("Processed %d/%d %s conversations...", idx, total, config.name)
                         
                 except Exception as e:
-                    logger.error("Error processing Claude conversation %s: %s", conv_id, e)
+                    logger.error("Error processing %s conversation %s: %s", config.name, conv_id, e)
                     stats["errors"] += 1
             
-            logger.info("Claude ingestion complete: %d ingested, %d skipped, %d errors",
-                       stats["ingested"], stats["skipped"], stats["errors"])
+            logger.info("%s ingestion complete: %d ingested, %d skipped, %d errors",
+                       config.name.capitalize(), stats["ingested"], stats["skipped"], stats["errors"])
             
         except Exception as e:
-            logger.error("Error during Claude ingestion: %s", e)
+            logger.error("Error during %s ingestion: %s", config.name, e)
             stats["errors"] += 1
         
         return stats
+    
+    def ingest_claude(self, progress_callback: Optional[callable] = None,
+                      incremental: bool = False) -> Dict[str, int]:
+        """
+        Ingest chats from Claude.ai.
+        
+        Parameters
+        ----
+        progress_callback : callable, optional
+            Callback function(conversation_id, total, current) for progress updates
+        incremental : bool
+            If True, only fetch details for conversations that are new or updated
+            
+        Returns
+        ----
+        Dict[str, int]
+            Statistics: {"ingested": count, "skipped": count, "errors": count}
+        """
+        config = WebSourceConfig(
+            name="claude",
+            reader_class=ClaudeReader,
+            id_field="uuid",
+            updated_field="updated_at",
+            converter=self._convert_claude_to_chat,
+            timestamp_parser=self._parse_claude_timestamp
+        )
+        return self._ingest_web_source(config, progress_callback, incremental)
+    
+    def _parse_chatgpt_timestamp(self, timestamp: Optional[Any]) -> Optional[datetime]:
+        """
+        Parse ChatGPT timestamp (supports both Unix epoch and ISO strings).
+        
+        ChatGPT API returns timestamps in two formats:
+        - Unix epoch: 1766681665.991872 (float)
+        - ISO string: "2025-12-30T22:12:41.767145Z"
+        
+        Parameters
+        ----
+        timestamp : float, str, or None
+            Timestamp value from ChatGPT API
+            
+        Returns
+        ----
+        datetime or None
+            Parsed datetime or None if parsing fails
+        """
+        if timestamp is None:
+            return None
+        
+        try:
+            if isinstance(timestamp, (int, float)):
+                # Unix epoch timestamp
+                return datetime.fromtimestamp(float(timestamp))
+            elif isinstance(timestamp, str):
+                # ISO format string
+                if timestamp.endswith('Z'):
+                    timestamp = timestamp[:-1] + '+00:00'
+                return datetime.fromisoformat(timestamp)
+        except (ValueError, TypeError, OSError) as e:
+            logger.debug("Could not parse ChatGPT timestamp %s: %s", timestamp, e)
+        
+        return None
+    
+    def _convert_chatgpt_to_chat(self, conversation_data: Dict[str, Any]) -> Optional[Chat]:
+        """
+        Convert ChatGPT conversation data to Chat domain model.
+        
+        Key differences from Claude:
+        - Uses "id" instead of "uuid"
+        - Timestamps can be Unix epoch or ISO strings
+        - Messages already flattened by ChatGPTReader
+        - Sender is "user"/"assistant" vs "human"/"assistant"
+        
+        Parameters
+        ----
+        conversation_data : Dict[str, Any]
+            Raw conversation from ChatGPT API (includes chat_messages from reader)
+            
+        Returns
+        ----
+        Chat or None
+            Chat domain model, or None if conversion fails
+        """
+        conv_id = conversation_data.get("id")
+        if not conv_id:
+            return None
+        
+        # Extract title
+        title = conversation_data.get("title", "Untitled Chat")
+        
+        # Extract timestamps (ChatGPT uses both Unix epoch and ISO strings)
+        created_at = None
+        create_time = conversation_data.get("create_time")
+        if create_time:
+            created_at = self._parse_chatgpt_timestamp(create_time)
+        
+        last_updated_at = None
+        update_time = conversation_data.get("update_time")
+        if update_time:
+            last_updated_at = self._parse_chatgpt_timestamp(update_time)
+        
+        # Extract messages (already flattened by ChatGPTReader)
+        messages = []
+        chat_messages = conversation_data.get("chat_messages", [])
+        
+        for msg_data in chat_messages:
+            # Map sender to role
+            sender = msg_data.get("sender", "")
+            if sender == "user":
+                role = MessageRole.USER
+            elif sender == "assistant":
+                role = MessageRole.ASSISTANT
+            else:
+                # Skip system messages and unknown types
+                continue
+            
+            # Extract text from content array
+            text_parts = []
+            content_items = msg_data.get("content", [])
+            for item in content_items:
+                if isinstance(item, dict) and item.get("type") == "text":
+                    text_parts.append(item.get("text", ""))
+                elif isinstance(item, str):
+                    text_parts.append(item)
+            
+            text = "\n".join(text_parts) if text_parts else ""
+            
+            # Extract timestamp
+            msg_created_at = None
+            if msg_data.get("created_at"):
+                msg_created_at = self._parse_chatgpt_timestamp(msg_data["created_at"])
+            
+            # Classify message type
+            message_type = MessageType.RESPONSE if text else MessageType.EMPTY
+            
+            message = Message(
+                role=role,
+                text=text,
+                rich_text="",  # ChatGPT doesn't expose rich text separately
+                created_at=msg_created_at or created_at,
+                cursor_bubble_id=msg_data.get("uuid"),  # Message UUID if available
+                raw_json=msg_data,
+                message_type=message_type,
+            )
+            messages.append(message)
+        
+        # ChatGPT conversations are always chat mode
+        mode = ChatMode.CHAT
+        
+        # Create chat
+        chat = Chat(
+            cursor_composer_id=conv_id,  # Reuse this field for ChatGPT conversation ID
+            workspace_id=None,  # ChatGPT conversations don't have workspaces
+            title=title,
+            mode=mode,
+            created_at=created_at,
+            last_updated_at=last_updated_at,
+            source="chatgpt",  # Important: mark as chatgpt source!
+            messages=messages,
+            relevant_files=[],  # ChatGPT API doesn't expose relevant files in this format
+        )
+        
+        return chat
+    
+    def ingest_chatgpt(self, progress_callback: Optional[callable] = None,
+                       incremental: bool = False) -> Dict[str, int]:
+        """
+        Ingest chats from ChatGPT.
+        
+        Parameters
+        ----
+        progress_callback : callable, optional
+            Callback function(conversation_id, total, current) for progress updates
+        incremental : bool
+            If True, only fetch details for conversations that are new or updated
+            
+        Returns
+        ----
+        Dict[str, int]
+            Statistics: {"ingested": count, "skipped": count, "errors": count}
+        """
+        config = WebSourceConfig(
+            name="chatgpt",
+            reader_class=ChatGPTReader,
+            id_field="id",
+            updated_field="update_time",
+            converter=self._convert_chatgpt_to_chat,
+            timestamp_parser=self._parse_chatgpt_timestamp
+        )
+        return self._ingest_web_source(config, progress_callback, incremental)
 

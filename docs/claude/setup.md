@@ -176,6 +176,75 @@ session_token = "your-session-token-here"
 
 ---
 
+## Using the Readers for Ingestion
+
+After extracting session cookies, you can use the CLI to ingest conversations from web sources into your local database.
+
+### Ingesting Claude.ai Conversations
+
+```bash
+# Set credentials (if not using dlt secrets)
+export CLAUDE_ORG_ID="your-org-id"
+export CLAUDE_SESSION_COOKIE="your-session-cookie"
+
+# Ingest all Claude conversations
+python -m src ingest --source claude
+
+# Incremental mode (only new/updated)
+python -m src ingest --source claude --incremental
+
+# Verbose output for debugging
+python -m src ingest --source claude -v
+```
+
+### Ingesting ChatGPT Conversations
+
+```bash
+# Set credentials (if not using dlt secrets)
+export CHATGPT_SESSION_TOKEN="your-session-token"
+
+# Ingest all ChatGPT conversations
+python -m src ingest --source chatgpt
+
+# Incremental mode (only new/updated)
+python -m src ingest --source chatgpt --incremental
+
+# Verbose output for debugging
+python -m src ingest --source chatgpt -v
+```
+
+### Ingesting from All Sources
+
+```bash
+# Ingest from Cursor, Claude, and ChatGPT
+python -m src ingest --source all
+
+# Incremental mode across all sources
+python -m src ingest --source all --incremental
+```
+
+### Verifying Ingestion
+
+After ingestion, verify chats are stored:
+
+```bash
+# Search across all sources
+python -m src search "your query"
+
+# List chats by source (if supported)
+python -m src list
+
+# Export chats
+python -m src export --format markdown
+```
+
+**Database Location:** All chats are stored in the same database (`~/.cursor-chats/chats.db` or platform equivalent) with a `source` field distinguishing them:
+- `source='cursor'` - Cursor composer chats
+- `source='claude'` - Claude.ai chats
+- `source='chatgpt'` - ChatGPT chats
+
+---
+
 ## HAR File Structure
 
 Understanding HAR helps with debugging:
