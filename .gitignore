@@ -33,3 +33,6 @@ examples/
 # dlt secrets and pipeline state
 .dlt/secrets.toml
 .dlt/pipelines/
+
+# HAR files (contain session cookies - never commit)
+*.har
