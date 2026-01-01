@@ -66,6 +66,12 @@
         color: var(--accent-green);
     }
     
+    .copy-btn.error {
+        background: rgba(244, 135, 113, 0.15);
+        border-color: var(--accent-red, #f48771);
+        color: var(--accent-red, #f48771);
+    }
+    
     .copy-btn svg {
         width: 16px;
         height: 16px;
@@ -285,6 +291,12 @@
                 </svg>
                 <span>Copy Chat</span>
             </button>
+            <button class="copy-btn" onclick="copyChatAsJson()" id="copyJsonBtn">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+                <span>Copy as JSON</span>
+            </button>
         </div>
     </div>
     
@@ -384,13 +396,39 @@
                 {
                     role: {{ item.data.role | tojson }},
                     text: {{ (item.data.text or item.data.rich_text or '') | tojson }}
-                },
+                }{% if not loop.last %},{% endif %}
                 {% endif %}
             {% endfor %}
         ]
     };
     
+    // Helper function to show button feedback
+    function showButtonFeedback(buttonId, type, message, originalHTML) {
+        const btn = document.getElementById(buttonId);
+        btn.classList.remove('copied', 'error');
+        btn.classList.add(type);
+        
+        const iconPath = type === 'copied' 
+            ? 'M5 13l4 4L19 7'
+            : 'M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z';
+        
+        btn.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${iconPath}" />
+            </svg>
+            <span>${message}</span>
+        `;
+        
+        setTimeout(() => {
+            btn.classList.remove(type);
+            btn.innerHTML = originalHTML;
+        }, 2000);
+    }
+    
     function copyChatToClipboard() {
+        const btn = document.getElementById('copyBtn');
+        const originalHTML = btn.innerHTML;
+        
         // Build the chat text in a clean format
         let chatText = '';
         
@@ -404,27 +442,61 @@
         // Remove trailing separator
         chatText = chatText.replace(/\n\n---\n\n$/, '\n');
         
+        // Check for empty chat
+        if (chatText.trim() === '') {
+            showButtonFeedback('copyBtn', 'error', 'Nothing to copy', originalHTML);
+            return;
+        }
+        
+        const charCount = chatText.length;
+        const formattedCount = charCount.toLocaleString();
+        
         // Copy to clipboard
         navigator.clipboard.writeText(chatText).then(() => {
-            const btn = document.getElementById('copyBtn');
-            const originalHTML = btn.innerHTML;
-            
-            btn.classList.add('copied');
-            btn.innerHTML = `
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-                </svg>
-                <span>Copied!</span>
-            `;
-            
-            setTimeout(() => {
-                btn.classList.remove('copied');
-                btn.innerHTML = originalHTML;
-            }, 2000);
+            showButtonFeedback('copyBtn', 'copied', `Copied! (${formattedCount} chars)`, originalHTML);
         }).catch(err => {
             console.error('Failed to copy:', err);
-            alert('Failed to copy to clipboard');
+            showButtonFeedback('copyBtn', 'error', 'Copy failed', originalHTML);
         });
     }
+    
+    function copyChatAsJson() {
+        const btn = document.getElementById('copyJsonBtn');
+        const originalHTML = btn.innerHTML;
+        
+        // Filter messages with text content
+        const messagesWithText = chatData.messages.filter(msg => msg.text && msg.text.trim() !== '');
+        
+        // Check for empty chat
+        if (messagesWithText.length === 0) {
+            showButtonFeedback('copyJsonBtn', 'error', 'Nothing to copy', originalHTML);
+            return;
+        }
+        
+        const jsonData = {
+            title: chatData.title,
+            messages: messagesWithText
+        };
+        
+        const jsonText = JSON.stringify(jsonData, null, 2);
+        const charCount = jsonText.length;
+        const formattedCount = charCount.toLocaleString();
+        
+        // Copy to clipboard
+        navigator.clipboard.writeText(jsonText).then(() => {
+            showButtonFeedback('copyJsonBtn', 'copied', `Copied! (${formattedCount} chars)`, originalHTML);
+        }).catch(err => {
+            console.error('Failed to copy:', err);
+            showButtonFeedback('copyJsonBtn', 'error', 'Copy failed', originalHTML);
+        });
+    }
+    
+    // Keyboard shortcut: Ctrl+Shift+C (or Cmd+Shift+C on Mac)
+    document.addEventListener('keydown', function(e) {
+        if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'C') {
+            e.preventDefault();
+            copyChatToClipboard();
+        }
+    });
 </script>
 {% endblock %}
