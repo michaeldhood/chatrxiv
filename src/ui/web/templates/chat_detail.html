@@ -391,12 +391,20 @@
     const chatData = {
         title: {{ (chat.title or 'Untitled Chat') | tojson }},
         messages: [
+            {% set matching_count = 0 %}
             {% for item in chat.processed_messages %}
                 {% if item.type == 'message' and item.data.message_type not in ['tool_call', 'thinking', 'empty'] %}
+                    {% set matching_count = matching_count + 1 %}
+                {% endif %}
+            {% endfor %}
+            {% set current_matching = 0 %}
+            {% for item in chat.processed_messages %}
+                {% if item.type == 'message' and item.data.message_type not in ['tool_call', 'thinking', 'empty'] %}
+                    {% set current_matching = current_matching + 1 %}
                 {
                     role: {{ item.data.role | tojson }},
                     text: {{ (item.data.text or item.data.rich_text or '') | tojson }}
-                }{% if not loop.last %},{% endif %}
+                }{% if current_matching < matching_count %},{% endif %}
                 {% endif %}
             {% endfor %}
         ]
