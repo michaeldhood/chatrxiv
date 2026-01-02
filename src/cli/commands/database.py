@@ -10,6 +10,7 @@ from pathlib import Path
 from src.core.db import ChatDatabase
 from src.core.config import get_default_db_path
 from src.services.legacy_importer import LegacyChatImporter
+from src.services.chatgpt_export_importer import ChatGPTExportImporter
 from src.services.search import ChatSearchService
 from src.services.exporter import ChatExporter
 from src.cli.common import db_option, output_dir_option, format_option, create_progress_callback
@@ -108,6 +109,57 @@ def import_legacy(ctx, path, pattern, db_path):
 
     except Exception as e:
         click.secho(f"Error during import: {e}", fg='red', err=True)
+        raise click.Abort()
+
+
+@click.command('import-chatgpt')
+@click.argument('path', type=click.Path(exists=True))
+@db_option
+@click.pass_context
+def import_chatgpt(ctx, path, db_path):
+    """Import ChatGPT manual export (ZIP or conversations.json file)."""
+    click.echo("Importing ChatGPT export...")
+
+    # Get database from context
+    if db_path:
+        ctx.obj.db_path = Path(db_path)
+
+    db = ctx.obj.get_db()
+
+    try:
+        importer = ChatGPTExportImporter(db)
+        path_obj = Path(path)
+
+        if path_obj.suffix.lower() == '.zip':
+            # Import from ZIP file
+            count = importer.import_zip(path_obj)
+            click.secho(f"Imported {count} chats from {path}", fg='green')
+        elif path_obj.is_file() and path_obj.name == 'conversations.json':
+            # Import conversations.json directly
+            count = importer.import_file(path_obj)
+            click.secho(f"Imported {count} chats from {path}", fg='green')
+        elif path_obj.is_dir():
+            # Look for conversations.json in directory
+            conversations_json = path_obj / 'conversations.json'
+            if conversations_json.exists():
+                count = importer.import_file(conversations_json)
+                click.secho(f"Imported {count} chats from {conversations_json}", fg='green')
+            else:
+                click.secho(f"No conversations.json found in {path}", fg='red')
+                raise click.Abort()
+        else:
+            click.secho(f"Expected ZIP file or conversations.json, got {path}", fg='red')
+            raise click.Abort()
+
+        if count == 0:
+            click.secho("No chats imported. Check the file format.", fg='yellow')
+            raise click.Abort()
+
+    except Exception as e:
+        click.secho(f"Error during import: {e}", fg='red', err=True)
+        if ctx.obj.verbose:
+            import traceback
+            click.echo(traceback.format_exc(), err=True)
         raise click.Abort()
 
 
