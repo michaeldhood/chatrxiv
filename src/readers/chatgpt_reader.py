@@ -230,7 +230,7 @@ class ChatGPTReader(WebConversationReader):
             # Flatten the message tree into a linear array (like Claude's format)
             mapping = data.get("mapping", {})
             if mapping:
-                data["chat_messages"] = self._flatten_message_tree(mapping)
+                data["chat_messages"] = ChatGPTReader._flatten_message_tree(mapping)
 
             return data
         except Exception as e:
@@ -241,7 +241,8 @@ class ChatGPTReader(WebConversationReader):
         """Extract conversation ID from ChatGPT conversation object."""
         return conversation["id"]  # ChatGPT uses "id", Claude uses "uuid"
 
-    def _flatten_message_tree(self, mapping: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
+    @staticmethod
+    def _flatten_message_tree(mapping: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Convert ChatGPT's message tree to flat array (like Claude's format).
 
@@ -295,7 +296,7 @@ class ChatGPTReader(WebConversationReader):
                 msg_data = {
                     "uuid": message.get("id", current_id),
                     "sender": message.get("author", {}).get("role", "unknown"),
-                    "content": self._extract_message_content(message),
+                    "content": ChatGPTReader._extract_message_content(message),
                     "created_at": message.get("create_time"),
                     "updated_at": message.get("update_time"),
                     "parent_message_uuid": node.get("parent"),
@@ -313,7 +314,8 @@ class ChatGPTReader(WebConversationReader):
 
         return messages
 
-    def _extract_message_content(self, message: Dict[str, Any]) -> List[Dict[str, Any]]:
+    @staticmethod
+    def _extract_message_content(message: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
         Extract message content parts from ChatGPT message object.
 
