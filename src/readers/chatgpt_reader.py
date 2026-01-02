@@ -4,12 +4,21 @@ Reader for ChatGPT conversations.
 Fetches conversations from ChatGPT's internal API using direct HTTP requests.
 """
 
+import json
 import logging
 from typing import Any, Dict, List, Optional
 
 from .base import WebConversationReader
 
 logger = logging.getLogger(__name__)
+
+# #region agent log
+DEBUG_LOG_PATH = "/Users/michaelhood/git/build/cursor_chats/.cursor/debug.log"
+def _debug_log(hypothesis_id: str, location: str, message: str, data: dict = None):
+    import time
+    entry = {"hypothesisId": hypothesis_id, "location": location, "message": message, "data": data or {}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session"}
+    with open(DEBUG_LOG_PATH, "a") as f: f.write(json.dumps(entry) + "\n")
+# #endregion
 
 
 class ChatGPTReader(WebConversationReader):
@@ -21,7 +30,14 @@ class ChatGPTReader(WebConversationReader):
     or dlt secrets file (.dlt/secrets.toml).
     """
 
-    def __init__(self, session_token: Optional[str] = None):
+    def __init__(
+        self,
+        session_token: Optional[str] = None,
+        csrf_token: Optional[str] = None,
+        cf_clearance: Optional[str] = None,
+        oai_did: Optional[str] = None,
+        puid: Optional[str] = None,
+    ):
         """
         Initialize ChatGPT reader.
 
@@ -29,7 +45,41 @@ class ChatGPTReader(WebConversationReader):
         ----
         session_token : str, optional
             Session token. If None, reads from dlt secrets or env var.
+        csrf_token : str, optional
+            CSRF token from __Host-next-auth.csrf-token cookie.
+        cf_clearance : str, optional
+            Cloudflare clearance token.
+        oai_did : str, optional
+            OpenAI device ID.
+        puid : str, optional
+            User ID cookie.
         """
+        # Load additional cookies from dlt secrets if not provided
+        import dlt
+        try:
+            secrets = dlt.secrets.get("sources.chatgpt_conversations", {})
+            self._csrf_token = csrf_token or secrets.get("csrf_token")
+            self._cf_clearance = cf_clearance or secrets.get("cf_clearance")
+            self._oai_did = oai_did or secrets.get("oai_did")
+            self._puid = puid or secrets.get("puid")
+            # #region agent log
+            _debug_log("H0", "chatgpt_reader.py:__init__", "Loaded secrets", {
+                "has_session_cookie": "session_cookie" in secrets,
+                "has_csrf_token": "csrf_token" in secrets,
+                "has_cf_clearance": "cf_clearance" in secrets,
+                "has_oai_did": "oai_did" in secrets,
+                "has_puid": "puid" in secrets,
+            })
+            # #endregion
+        except Exception as e:
+            # #region agent log
+            _debug_log("H0", "chatgpt_reader.py:__init__", "Failed to load secrets", {"error": str(e)})
+            # #endregion
+            self._csrf_token = csrf_token
+            self._cf_clearance = cf_clearance
+            self._oai_did = oai_did
+            self._puid = puid
+        
         super().__init__(credential=session_token)
 
     @property
@@ -48,12 +98,61 @@ class ChatGPTReader(WebConversationReader):
         return "sources.chatgpt_conversations"
 
     def _build_headers(self, credential: str) -> Dict[str, str]:
-        """Build HTTP headers with ChatGPT session token."""
+        """Build HTTP headers with ChatGPT session token and additional cookies."""
+        # #region agent log
+        _debug_log("H0", "chatgpt_reader.py:_build_headers", "Building headers", {
+            "session_token_len": len(credential) if credential else 0,
+            "has_csrf": bool(self._csrf_token),
+            "has_cf_clearance": bool(self._cf_clearance),
+            "has_oai_did": bool(self._oai_did),
+            "has_puid": bool(self._puid),
+        })
+        # #endregion
+        
+        # Build cookie string with all available cookies
+        cookies = [f"__Secure-next-auth.session-token={credential}"]
+        
+        # H1: Add CSRF token if available
+        if self._csrf_token:
+            cookies.append(f"__Host-next-auth.csrf-token={self._csrf_token}")
+            # #region agent log
+            _debug_log("H1", "chatgpt_reader.py:_build_headers", "Added CSRF token", {"csrf_len": len(self._csrf_token)})
+            # #endregion
+        
+        # H3: Add Cloudflare clearance if available
+        if self._cf_clearance:
+            cookies.append(f"cf_clearance={self._cf_clearance}")
+            # #region agent log
+            _debug_log("H3", "chatgpt_reader.py:_build_headers", "Added cf_clearance", {"cf_len": len(self._cf_clearance)})
+            # #endregion
+        
+        # H4: Add device ID if available
+        if self._oai_did:
+            cookies.append(f"oai-did={self._oai_did}")
+            # #region agent log
+            _debug_log("H4", "chatgpt_reader.py:_build_headers", "Added oai-did", {"oai_did": self._oai_did[:10] + "..." if len(self._oai_did) > 10 else self._oai_did})
+            # #endregion
+        
+        # H4: Add user ID if available
+        if self._puid:
+            cookies.append(f"_puid={self._puid}")
+            # #region agent log
+            _debug_log("H4", "chatgpt_reader.py:_build_headers", "Added _puid", {"puid": self._puid[:10] + "..." if len(self._puid) > 10 else self._puid})
+            # #endregion
+        
+        cookie_str = "; ".join(cookies)
+        
+        # #region agent log
+        _debug_log("H0", "chatgpt_reader.py:_build_headers", "Final cookie count", {"num_cookies": len(cookies), "cookie_names": [c.split("=")[0] for c in cookies]})
+        # #endregion
+        
         return {
             "Accept": "application/json",
             "Content-Type": "application/json",
-            "Cookie": f"__Secure-next-auth.session-token={credential}",
+            "Cookie": cookie_str,
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Referer": "https://chatgpt.com/",
+            "Origin": "https://chatgpt.com",
         }
 
     def _fetch_conversation_list(self) -> List[Dict[str, Any]]:
@@ -61,36 +160,58 @@ class ChatGPTReader(WebConversationReader):
         Fetch list of all conversations with pagination.
 
         ChatGPT uses pagination, so we need to fetch all pages.
+        Fetches both regular and archived conversations.
         """
         all_conversations = []
-        offset = 0
         limit = 28  # ChatGPT's default page size
 
-        while True:
-            response = self._session.get(
-                f"{self.api_base_url}/conversations",
-                params={
-                    "offset": offset,
-                    "limit": limit,
-                    "order": "updated",
-                    "is_archived": False,
-                },
-            )
-            response.raise_for_status()
-            data = response.json()
+        # #region agent log
+        _debug_log("H0", "chatgpt_reader.py:_fetch_conversation_list", "Starting fetch", {"api_url": self.api_base_url})
+        # #endregion
 
-            items = data.get("items", [])
-            if not items:
-                break
+        # Fetch both non-archived and archived conversations
+        for is_archived in [False, True]:
+            offset = 0
+            # #region agent log
+            _debug_log("H0", "chatgpt_reader.py:_fetch_conversation_list", f"Fetching conversations", {"is_archived": is_archived})
+            # #endregion
+            
+            while True:
+                response = self._session.get(
+                    f"{self.api_base_url}/conversations",
+                    params={
+                        "offset": offset,
+                        "limit": limit,
+                        "order": "updated",
+                        "is_archived": is_archived,
+                    },
+                )
+                
+                # #region agent log
+                _debug_log("H0", "chatgpt_reader.py:_fetch_conversation_list", "API response received", {
+                    "status_code": response.status_code,
+                    "response_text_preview": response.text[:500] if response.text else None,
+                })
+                # #endregion
+                
+                response.raise_for_status()
+                data = response.json()
 
-            all_conversations.extend(items)
+                items = data.get("items", [])
+                if not items:
+                    break
 
-            # Check if there are more pages
-            if len(items) < limit:
-                break
+                all_conversations.extend(items)
 
-            offset += limit
+                # Check if there are more pages
+                if len(items) < limit:
+                    break
 
+                offset += limit
+
+        # #region agent log
+        _debug_log("H0", "chatgpt_reader.py:_fetch_conversation_list", "Fetch complete", {"total_conversations": len(all_conversations)})
+        # #endregion
         return all_conversations
 
     def _fetch_conversation_detail(self, conv_id: str) -> Optional[Dict[str, Any]]:
