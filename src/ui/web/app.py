@@ -219,6 +219,11 @@ def search():
         limit = 50
         offset = (page - 1) * limit
         
+        # Get sort parameter (relevance or date, default relevance)
+        sort_by = request.args.get('sort', 'relevance')
+        if sort_by not in ['relevance', 'date']:
+            sort_by = 'relevance'
+        
         # Get tag filters from query params (comma-separated or multiple params)
         tag_filters = request.args.getlist('tags')
         # Also support comma-separated format
@@ -230,7 +235,8 @@ def search():
             query, 
             tag_filters=tag_filters if tag_filters else None,
             limit=limit, 
-            offset=offset
+            offset=offset,
+            sort_by=sort_by
         )
         
         # Group facets by dimension for display
@@ -257,7 +263,8 @@ def search():
                              total_results=total_results,
                              has_next=len(results) == limit,
                              tag_facets=grouped_facets,
-                             active_filters=tag_filters)
+                             active_filters=tag_filters,
+                             sort_by=sort_by)
     finally:
         db.close()
 

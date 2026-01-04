@@ -36,7 +36,7 @@ class ChatSearchService:
         """
         self.db = db
     
-    def instant_search(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
+    def instant_search(self, query: str, limit: int = 10, sort_by: str = 'relevance') -> List[Dict[str, Any]]:
         """
         Fast instant search for live typeahead.
         
@@ -49,15 +49,17 @@ class ChatSearchService:
             Search query (prefix matching applied automatically)
         limit : int
             Maximum results (default 10 for fast UI)
+        sort_by : str
+            Sort order: 'relevance' (BM25) or 'date' (newest first)
             
         Returns
         ----
         List[Dict[str, Any]]
             Results with 'snippet' field containing highlighted matches
         """
-        return self.db.instant_search(query, limit)
+        return self.db.instant_search(query, limit, sort_by)
     
-    def search(self, query: str, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
+    def search(self, query: str, limit: int = 50, offset: int = 0, sort_by: str = 'relevance') -> List[Dict[str, Any]]:
         """
         Search chats by text content.
         
@@ -69,6 +71,8 @@ class ChatSearchService:
             Maximum number of results
         offset : int
             Offset for pagination
+        sort_by : str
+            Sort order: 'relevance' (BM25) or 'date' (newest first)
             
         Returns
         ----
@@ -76,10 +80,10 @@ class ChatSearchService:
             List of matching chats
         """
         # Use the new unified search with snippets
-        results, _ = self.db.search_with_snippets(query, limit, offset)
+        results, _ = self.db.search_with_snippets(query, limit, offset, sort_by)
         return results
     
-    def search_with_total(self, query: str, limit: int = 50, offset: int = 0) -> Tuple[List[Dict[str, Any]], int]:
+    def search_with_total(self, query: str, limit: int = 50, offset: int = 0, sort_by: str = 'relevance') -> Tuple[List[Dict[str, Any]], int]:
         """
         Search with total count for pagination.
         
@@ -91,20 +95,23 @@ class ChatSearchService:
             Results per page
         offset : int
             Pagination offset
+        sort_by : str
+            Sort order: 'relevance' (BM25) or 'date' (newest first)
             
         Returns
         ----
         Tuple[List[Dict], int]
             (results, total_count)
         """
-        return self.db.search_with_snippets(query, limit, offset)
+        return self.db.search_with_snippets(query, limit, offset, sort_by)
     
     def search_with_facets(
         self, 
         query: str, 
         tag_filters: Optional[List[str]] = None,
         limit: int = 50, 
-        offset: int = 0
+        offset: int = 0,
+        sort_by: str = 'relevance'
     ) -> Tuple[List[Dict[str, Any]], int, Dict[str, int]]:
         """
         Search with tag facets for building filter UI.
@@ -122,6 +129,8 @@ class ChatSearchService:
             Results per page
         offset : int
             Pagination offset
+        sort_by : str
+            Sort order: 'relevance' (BM25) or 'date' (newest first)
             
         Returns
         ----
@@ -131,7 +140,7 @@ class ChatSearchService:
         """
         # Get results (filtered if tags specified)
         results, total = self.db.search_with_snippets_filtered(
-            query, tag_filters, limit, offset
+            query, tag_filters, limit, offset, sort_by
         )
         
         # Get facets (always show all available tags, even when filtering)

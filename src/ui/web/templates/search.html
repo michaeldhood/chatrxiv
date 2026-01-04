@@ -214,6 +214,34 @@
         font-size: 14px;
     }
     
+    .sort-toggle {
+        display: flex;
+        gap: 8px;
+        margin-top: 12px;
+    }
+    
+    .sort-toggle button {
+        padding: 6px 12px;
+        font-size: 13px;
+        border: 1px solid var(--border-color);
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+        border-radius: 6px;
+        cursor: pointer;
+        transition: all 0.15s;
+    }
+    
+    .sort-toggle button:hover {
+        background: var(--bg-hover);
+        color: var(--text-primary);
+    }
+    
+    .sort-toggle button.active {
+        background: rgba(86, 156, 214, 0.2);
+        color: var(--accent-blue);
+        border-color: var(--accent-blue);
+    }
+    
     .empty-state {
         text-align: center;
         padding: 60px 24px;
@@ -332,7 +360,8 @@
                     </span>
                     {% endfor %}
                 </div>
-                <a href="{{ url_for('search', q=query) }}" class="clear-all-btn">Clear all filters</a>
+                {% set clear_url = url_for('search', q=query) + ('&sort=' + sort_by if sort_by != 'relevance' else '') %}
+                <a href="{{ clear_url }}" class="clear-all-btn">Clear all filters</a>
             </div>
             {% endif %}
             
@@ -388,6 +417,12 @@
                 {% endif %}
             </p>
             {% endif %}
+            <div class="sort-toggle">
+                <button class="{% if sort_by == 'relevance' %}active{% endif %}" 
+                        onclick="setSort('relevance')">Relevance</button>
+                <button class="{% if sort_by == 'date' %}active{% endif %}" 
+                        onclick="setSort('date')">Date</button>
+            </div>
         </div>
 
         <div class="chat-list">
@@ -439,12 +474,13 @@
         {% if has_next or page > 1 %}
         <div class="pagination">
             {% set filter_params = '&tags=' + active_filters|join('&tags=') if active_filters else '' %}
+            {% set sort_param = '&sort=' + sort_by if sort_by != 'relevance' else '' %}
             {% if page > 1 %}
-            <a href="{{ url_for('search', q=query, page=page-1) }}{{ filter_params }}">← Previous</a>
+            <a href="{{ url_for('search', q=query, page=page-1) }}{{ filter_params }}{{ sort_param }}">← Previous</a>
             {% endif %}
             <a class="current">Page {{ page }}</a>
             {% if has_next %}
-            <a href="{{ url_for('search', q=query, page=page+1) }}{{ filter_params }}">Next →</a>
+            <a href="{{ url_for('search', q=query, page=page+1) }}{{ filter_params }}{{ sort_param }}">Next →</a>
             {% endif %}
         </div>
         {% endif %}
@@ -455,6 +491,7 @@
     // Current active filters
     const activeFilters = {{ active_filters | tojson | safe }};
     const currentQuery = {{ query | tojson | safe }};
+    const currentSort = {{ sort_by | tojson | safe }};
     
     function toggleFilter(tag) {
         const newFilters = [...activeFilters];
@@ -468,17 +505,25 @@
             newFilters.splice(index, 1);
         }
         
-        applyFilters(newFilters);
+        applyFilters(newFilters, currentSort);
     }
     
     function removeFilter(tag) {
         const newFilters = activeFilters.filter(t => t !== tag);
-        applyFilters(newFilters);
+        applyFilters(newFilters, currentSort);
     }
     
-    function applyFilters(filters) {
+    function setSort(sortBy) {
+        applyFilters(activeFilters, sortBy);
+    }
+    
+    function applyFilters(filters, sortBy) {
         const params = new URLSearchParams();
         params.set('q', currentQuery);
+        
+        if (sortBy && sortBy !== 'relevance') {
+            params.set('sort', sortBy);
+        }
         
         filters.forEach(tag => {
             params.append('tags', tag);

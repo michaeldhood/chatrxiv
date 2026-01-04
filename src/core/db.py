@@ -1062,7 +1062,7 @@ class ChatDatabase:
         
         self.conn.commit()
     
-    def instant_search(self, query: str, limit: int = 20) -> List[Dict[str, Any]]:
+    def instant_search(self, query: str, limit: int = 20, sort_by: str = 'relevance') -> List[Dict[str, Any]]:
         """
         Fast instant search for typeahead/live search.
         
@@ -1075,6 +1075,8 @@ class ChatDatabase:
             Search query (automatically handles prefix matching)
         limit : int
             Maximum results to return
+        sort_by : str
+            Sort order: 'relevance' (BM25) or 'date' (newest first)
             
         Returns
         ----
@@ -1093,10 +1095,16 @@ class ChatDatabase:
         # e.g., "hello wor" -> 'hello wor*'
         fts_query = ' '.join(terms[:-1] + [terms[-1] + '*']) if terms else ''
         
+        # Determine sort order
+        if sort_by == 'date':
+            order_clause = 'ORDER BY c.created_at DESC'
+        else:
+            order_clause = 'ORDER BY rank'
+        
         try:
             # Search with snippet generation
             # snippet() function: table, column_idx, start_mark, end_mark, ellipsis, max_tokens
-            cursor.execute("""
+            cursor.execute(f"""
                 SELECT 
                     fts.chat_id,
                     c.cursor_composer_id,
@@ -1113,7 +1121,7 @@ class ChatDatabase:
                 INNER JOIN chats c ON fts.chat_id = c.id
                 LEFT JOIN workspaces w ON c.workspace_id = w.id
                 WHERE unified_fts MATCH ?
-                ORDER BY rank
+                {order_clause}
                 LIMIT ?
             """, (fts_query, limit))
             
@@ -1163,7 +1171,7 @@ class ChatDatabase:
             logger.debug("FTS query error for '%s': %s", query, e)
             return []
     
-    def search_with_snippets(self, query: str, limit: int = 50, offset: int = 0) -> Tuple[List[Dict[str, Any]], int]:
+    def search_with_snippets(self, query: str, limit: int = 50, offset: int = 0, sort_by: str = 'relevance') -> Tuple[List[Dict[str, Any]], int]:
         """
         Full search with snippets, pagination, and total count.
         
@@ -1175,6 +1183,8 @@ class ChatDatabase:
             Maximum results per page
         offset : int
             Pagination offset
+        sort_by : str
+            Sort order: 'relevance' (BM25) or 'date' (newest first)
             
         Returns
         ----
@@ -1190,6 +1200,12 @@ class ChatDatabase:
         # Add prefix matching to last term
         fts_query = ' '.join(terms[:-1] + [terms[-1] + '*']) if terms else ''
         
+        # Determine sort order
+        if sort_by == 'date':
+            order_clause = 'ORDER BY c.created_at DESC'
+        else:
+            order_clause = 'ORDER BY rank'
+        
         try:
             # Get total count first
             cursor.execute("""
@@ -1200,7 +1216,7 @@ class ChatDatabase:
             total = cursor.fetchone()[0]
             
             # Get results with snippets
-            cursor.execute("""
+            cursor.execute(f"""
                 SELECT 
                     fts.chat_id,
                     c.cursor_composer_id,
@@ -1217,7 +1233,7 @@ class ChatDatabase:
                 INNER JOIN chats c ON fts.chat_id = c.id
                 LEFT JOIN workspaces w ON c.workspace_id = w.id
                 WHERE unified_fts MATCH ?
-                ORDER BY rank
+                {order_clause}
                 LIMIT ? OFFSET ?
             """, (fts_query, limit, offset))
             
@@ -1342,7 +1358,8 @@ class ChatDatabase:
         query: str, 
         tag_filters: Optional[List[str]] = None,
         limit: int = 50, 
-        offset: int = 0
+        offset: int = 0,
+        sort_by: str = 'relevance'
     ) -> Tuple[List[Dict[str, Any]], int]:
         """
         Full search with snippets, pagination, and tag filtering.
@@ -1357,6 +1374,8 @@ class ChatDatabase:
             Maximum results per page
         offset : int
             Pagination offset
+        sort_by : str
+            Sort order: 'relevance' (BM25) or 'date' (newest first)
             
         Returns
         ----
@@ -1365,7 +1384,7 @@ class ChatDatabase:
         """
         if not tag_filters:
             # No filters, use existing method
-            return self.search_with_snippets(query, limit, offset)
+            return self.search_with_snippets(query, limit, offset, sort_by)
         
         cursor = self.conn.cursor()
         
@@ -1400,6 +1419,12 @@ class ChatDatabase:
             
             total = cursor.fetchone()[0]
             
+            # Determine sort order
+            if sort_by == 'date':
+                order_clause = 'ORDER BY c.created_at DESC'
+            else:
+                order_clause = 'ORDER BY rank'
+            
             # Get results with snippets
             cursor.execute(f"""
                 SELECT 
@@ -1419,7 +1444,7 @@ class ChatDatabase:
                 LEFT JOIN workspaces w ON c.workspace_id = w.id
                 WHERE unified_fts MATCH ?
                 AND fts.chat_id IN ({tag_subquery})
-                ORDER BY rank
+                {order_clause}
                 LIMIT ? OFFSET ?
             """, (fts_query, *tag_filters, len(tag_filters), limit, offset))
             
