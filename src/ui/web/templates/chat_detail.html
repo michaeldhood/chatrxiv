@@ -401,7 +401,11 @@
         </h2>
         <div class="chat-meta">
             <span class="badge {{ chat.mode }}">{{ chat.mode }}</span>
-            <span>Created: {{ chat.created_at if chat.created_at else 'Unknown' }}</span>
+            {% if chat.created_at %}
+            <span>Created: <span class="timestamp" data-timestamp="{{ chat.created_at }}" title="{{ chat.created_at }}"></span></span>
+            {% else %}
+            <span>Created: Unknown</span>
+            {% endif %}
             {% if chat.workspace_path %}
             <span>Workspace: {{ chat.workspace_path }}</span>
             {% endif %}
@@ -462,7 +466,7 @@
                             <div class="tool-call-item">
                                 <strong>{{ tool_msg.role|title }}</strong>
                                 {% if tool_msg.created_at %}
-                                <span class="timestamp">{{ tool_msg.created_at[:19] }}</span>
+                                <span class="timestamp" data-timestamp="{{ tool_msg.created_at }}" title="{{ tool_msg.created_at }}"></span>
                                 {% endif %}
                                 {% if tool_msg.bubble_id %}
                                 <div class="bubble-id">
@@ -482,7 +486,7 @@
                             <span class="thinking-badge">🧠 Thinking</span>
                             {% endif %}
                             {% if msg.created_at %}
-                            <span class="timestamp">{{ msg.created_at[:19] }}</span>
+                            <span class="timestamp" data-timestamp="{{ msg.created_at }}" title="{{ msg.created_at }}"></span>
                             {% endif %}
                         </div>
                         <div class="message-content markdown-content">{{ msg.text or msg.rich_text or '' }}</div>
@@ -518,24 +522,84 @@
         content.classList.toggle('expanded');
     }
     
+    // Format timestamps nicely
+    function formatTimestamp(isoString) {
+        if (!isoString) return '';
+        
+        const date = new Date(isoString);
+        if (isNaN(date.getTime())) return isoString;
+        
+        const now = new Date();
+        const diffMs = now - date;
+        const diffSec = Math.floor(diffMs / 1000);
+        const diffMin = Math.floor(diffSec / 60);
+        const diffHour = Math.floor(diffMin / 60);
+        const diffDay = Math.floor(diffHour / 24);
+        
+        // Relative time for recent messages
+        if (diffSec < 60) return 'just now';
+        if (diffMin < 60) return `${diffMin}m ago`;
+        if (diffHour < 24) return `${diffHour}h ago`;
+        if (diffDay < 7) return `${diffDay}d ago`;
+        
+        // For older messages, show formatted date
+        const options = { 
+            month: 'short', 
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit'
+        };
+        
+        // Add year if not current year
+        if (date.getFullYear() !== now.getFullYear()) {
+            options.year = 'numeric';
+        }
+        
+        return date.toLocaleString(undefined, options);
+    }
+    
+    // Initialize all timestamps on page load
+    function initTimestamps() {
+        document.querySelectorAll('.timestamp[data-timestamp]').forEach(el => {
+            const timestamp = el.dataset.timestamp;
+            el.textContent = formatTimestamp(timestamp);
+            
+            // Update tooltip to show full formatted date
+            const date = new Date(timestamp);
+            if (!isNaN(date.getTime())) {
+                el.title = date.toLocaleString(undefined, {
+                    weekday: 'short',
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric',
+                    hour: 'numeric',
+                    minute: '2-digit',
+                    second: '2-digit'
+                });
+            }
+        });
+    }
+    
+    // Run on DOM ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initTimestamps);
+    } else {
+        initTimestamps();
+    }
+    
     // Chat data for copy functionality (only regular messages, no tool calls or thinking)
     const chatData = {
         title: {{ (chat.title or 'Untitled Chat') | tojson }},
         messages: [
-            {% set matching_count = 0 %}
+            {% set ns = namespace(first=true) %}
             {% for item in chat.processed_messages %}
                 {% if item.type == 'message' and item.data.message_type not in ['tool_call', 'thinking', 'empty'] %}
-                    {% set matching_count = matching_count + 1 %}
-                {% endif %}
-            {% endfor %}
-            {% set current_matching = 0 %}
-            {% for item in chat.processed_messages %}
-                {% if item.type == 'message' and item.data.message_type not in ['tool_call', 'thinking', 'empty'] %}
-                    {% set current_matching = current_matching + 1 %}
+                    {% if not ns.first %},{% endif %}
+                    {% set ns.first = false %}
                 {
                     role: {{ item.data.role | tojson }},
                     text: {{ (item.data.text or item.data.rich_text or '') | tojson }}
-                }{% if current_matching < matching_count %},{% endif %}
+                }
                 {% endif %}
             {% endfor %}
         ]
@@ -639,7 +703,8 @@
     });
     
     // Jump Navigation System
-    document.addEventListener('DOMContentLoaded', function() {
+    // Run immediately if DOM ready, otherwise wait
+    function initJumpNav() {
         const fab = document.getElementById('jumpFab');
         if (!fab) {
             console.warn('FAB not found');
@@ -655,18 +720,11 @@
         // Fallback: if no matches, try finding by role text content
         if (userMessages.length === 0) {
             const allMessages = Array.from(document.querySelectorAll('.message'));
-            console.log('Found', allMessages.length, 'total messages');
             userMessages = allMessages.filter(msg => {
                 const roleEl = msg.querySelector('.role');
                 const isUser = roleEl && roleEl.textContent.trim().toLowerCase() === 'user';
-                if (isUser) {
-                    console.log('Found user message:', msg);
-                }
                 return isUser;
             });
-            console.log('Found', userMessages.length, 'user messages via fallback');
-        } else {
-            console.log('Found', userMessages.length, 'user messages via selector');
         }
         
         let currentIndex = -1;
@@ -774,9 +832,7 @@
         // Toggle menu visibility
         fab.addEventListener('click', (e) => {
             e.stopPropagation();
-            console.log('FAB clicked, menu visible:', jumpMenu.classList.contains('visible'));
             jumpMenu.classList.toggle('visible');
-            console.log('Menu items:', jumpMenu.querySelectorAll('.jump-item').length);
         });
         
         // Close menu when clicking outside
@@ -825,6 +881,14 @@
                 }
             }, 100);
         }
-    });
+    }
+    
+    // Call init when DOM is ready (or immediately if already loaded)
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initJumpNav);
+    } else {
+        // DOM already loaded, call immediately
+        initJumpNav();
+    }
 </script>
 {% endblock %}
