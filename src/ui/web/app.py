@@ -230,10 +230,20 @@ def search():
         if len(tag_filters) == 1 and ',' in tag_filters[0]:
             tag_filters = [t.strip() for t in tag_filters[0].split(',') if t.strip()]
         
-        # Use new search_with_facets for results, count, and tag facets
-        results, total_results, tag_facets = search_service.search_with_facets(
+        # Get workspace filters from query params
+        workspace_filter_strs = request.args.getlist('workspaces')
+        workspace_filters = []
+        for ws_str in workspace_filter_strs:
+            try:
+                workspace_filters.append(int(ws_str))
+            except (ValueError, TypeError):
+                pass
+        
+        # Use new search_with_facets for results, count, tag facets, and workspace facets
+        results, total_results, tag_facets, workspace_facets = search_service.search_with_facets(
             query, 
             tag_filters=tag_filters if tag_filters else None,
+            workspace_filters=workspace_filters if workspace_filters else None,
             limit=limit, 
             offset=offset,
             sort_by=sort_by
@@ -256,6 +266,13 @@ def search():
             else:
                 grouped_facets['other'][tag] = count
         
+        # Sort workspace facets by count (descending)
+        sorted_workspace_facets = dict(sorted(
+            workspace_facets.items(),
+            key=lambda x: x[1].get('count', 0),
+            reverse=True
+        )) if workspace_facets else {}
+        
         return render_template('search.html', 
                              query=query, 
                              results=results,
@@ -263,7 +280,9 @@ def search():
                              total_results=total_results,
                              has_next=len(results) == limit,
                              tag_facets=grouped_facets,
+                             workspace_facets=sorted_workspace_facets,
                              active_filters=tag_filters,
+                             active_workspace_filters=workspace_filters,
                              sort_by=sort_by)
     finally:
         db.close()

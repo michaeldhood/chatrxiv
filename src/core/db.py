@@ -1283,7 +1283,8 @@ class ChatDatabase:
             return [], 0
     
     def get_search_tag_facets(
-        self, query: str, tag_filters: Optional[List[str]] = None
+        self, query: str, tag_filters: Optional[List[str]] = None,
+        workspace_filters: Optional[List[int]] = None
     ) -> Dict[str, int]:
         """
         Get tag facet counts for search results.
@@ -1297,6 +1298,8 @@ class ChatDatabase:
             Search query
         tag_filters : List[str], optional
             If provided, only count tags for chats that have ALL these tags
+        workspace_filters : List[int], optional
+            If provided, only count tags for chats in these workspaces
             
         Returns
         ----
@@ -1313,18 +1316,38 @@ class ChatDatabase:
         fts_query = ' '.join(terms[:-1] + [terms[-1] + '*']) if terms else ''
         
         try:
+            # Build conditions for matching chat IDs
+            conditions = ["unified_fts MATCH ?"]
+            params = [fts_query]
+            
             if tag_filters:
                 # Get chat IDs matching both FTS query AND all tag filters
                 placeholders = ','.join(['?'] * len(tag_filters))
+                tag_subquery = f"""
+                    SELECT chat_id 
+                    FROM tags 
+                    WHERE tag IN ({placeholders})
+                    GROUP BY chat_id
+                    HAVING COUNT(DISTINCT tag) = ?
+                """
+                conditions.append(f"fts.chat_id IN ({tag_subquery})")
+                params.extend(tag_filters)
+                params.append(len(tag_filters))
+            
+            if workspace_filters:
+                workspace_placeholders = ','.join(['?'] * len(workspace_filters))
+                conditions.append(f"c.workspace_id IN ({workspace_placeholders})")
+                params.extend(workspace_filters)
+            
+            where_clause = " AND ".join(conditions)
+            
+            if tag_filters or workspace_filters:
                 cursor.execute(f"""
                     SELECT DISTINCT fts.chat_id
                     FROM unified_fts fts
-                    INNER JOIN tags t ON fts.chat_id = t.chat_id
-                    WHERE unified_fts MATCH ?
-                    AND t.tag IN ({placeholders})
-                    GROUP BY fts.chat_id
-                    HAVING COUNT(DISTINCT t.tag) = ?
-                """, (fts_query, *tag_filters, len(tag_filters)))
+                    INNER JOIN chats c ON fts.chat_id = c.id
+                    WHERE {where_clause}
+                """, params)
             else:
                 cursor.execute("""
                     SELECT DISTINCT chat_id
@@ -1353,16 +1376,129 @@ class ChatDatabase:
             logger.debug("FTS facet query error for '%s': %s", query, e)
             return {}
     
+    def get_search_workspace_facets(
+        self, query: str, tag_filters: Optional[List[str]] = None,
+        workspace_filters: Optional[List[int]] = None
+    ) -> Dict[int, Dict[str, Any]]:
+        """
+        Get workspace facet counts for search results.
+        
+        Returns counts of all workspaces across matching chats, useful for building filter UI.
+        
+        Parameters
+        ----
+        query : str
+            Search query
+        tag_filters : List[str], optional
+            If provided, only count workspaces for chats that have ALL these tags
+        workspace_filters : List[int], optional
+            If provided, only count workspaces matching these workspace IDs
+            
+        Returns
+        ----
+        Dict[int, Dict[str, Any]]
+            Mapping of workspace_id -> {'count': int, 'resolved_path': str, 'workspace_hash': str}
+        """
+        cursor = self.conn.cursor()
+        
+        terms = query.strip().split()
+        if not terms:
+            return {}
+        
+        # Add prefix matching to last term
+        fts_query = ' '.join(terms[:-1] + [terms[-1] + '*']) if terms else ''
+        
+        try:
+            # Build base query to get matching chat IDs
+            conditions = ["unified_fts MATCH ?"]
+            params = [fts_query]
+            
+            # Add tag filters if provided
+            if tag_filters:
+                tag_placeholders = ','.join(['?'] * len(tag_filters))
+                tag_subquery = f"""
+                    SELECT chat_id 
+                    FROM tags 
+                    WHERE tag IN ({tag_placeholders})
+                    GROUP BY chat_id
+                    HAVING COUNT(DISTINCT tag) = ?
+                """
+                conditions.append(f"fts.chat_id IN ({tag_subquery})")
+                params.extend(tag_filters)
+                params.append(len(tag_filters))
+            
+            # Add workspace filters if provided
+            if workspace_filters:
+                workspace_placeholders = ','.join(['?'] * len(workspace_filters))
+                conditions.append(f"c.workspace_id IN ({workspace_placeholders})")
+                params.extend(workspace_filters)
+            
+            where_clause = " AND ".join(conditions)
+            
+            # Get matching chat IDs
+            cursor.execute(f"""
+                SELECT DISTINCT fts.chat_id, c.workspace_id
+                FROM unified_fts fts
+                INNER JOIN chats c ON fts.chat_id = c.id
+                WHERE {where_clause}
+            """, params)
+            
+            matching_chats = cursor.fetchall()
+            
+            if not matching_chats:
+                return {}
+            
+            # Get workspace IDs and their chat counts
+            workspace_counts = {}
+            for row in matching_chats:
+                workspace_id = row[1]
+                if workspace_id:
+                    if workspace_id not in workspace_counts:
+                        workspace_counts[workspace_id] = 0
+                    workspace_counts[workspace_id] += 1
+            
+            if not workspace_counts:
+                return {}
+            
+            # Get workspace details
+            workspace_ids = list(workspace_counts.keys())
+            placeholders = ','.join(['?'] * len(workspace_ids))
+            cursor.execute(f"""
+                SELECT id, workspace_hash, resolved_path
+                FROM workspaces
+                WHERE id IN ({placeholders})
+            """, workspace_ids)
+            
+            workspace_details = {row[0]: {'workspace_hash': row[1], 'resolved_path': row[2]} 
+                                for row in cursor.fetchall()}
+            
+            # Combine counts with details
+            result = {}
+            for workspace_id, count in workspace_counts.items():
+                details = workspace_details.get(workspace_id, {})
+                result[workspace_id] = {
+                    'count': count,
+                    'resolved_path': details.get('resolved_path', ''),
+                    'workspace_hash': details.get('workspace_hash', '')
+                }
+            
+            return result
+            
+        except sqlite3.OperationalError as e:
+            logger.debug("FTS workspace facet query error for '%s': %s", query, e)
+            return {}
+    
     def search_with_snippets_filtered(
         self, 
         query: str, 
         tag_filters: Optional[List[str]] = None,
+        workspace_filters: Optional[List[int]] = None,
         limit: int = 50, 
         offset: int = 0,
         sort_by: str = 'relevance'
     ) -> Tuple[List[Dict[str, Any]], int]:
         """
-        Full search with snippets, pagination, and tag filtering.
+        Full search with snippets, pagination, tag filtering, and workspace filtering.
         
         Parameters
         ----
@@ -1370,6 +1506,8 @@ class ChatDatabase:
             Search query
         tag_filters : List[str], optional
             Only return chats that have ALL of these tags
+        workspace_filters : List[int], optional
+            Only return chats from these workspace IDs
         limit : int
             Maximum results per page
         offset : int
@@ -1382,7 +1520,7 @@ class ChatDatabase:
         Tuple[List[Dict], int]
             (results with snippets, total count)
         """
-        if not tag_filters:
+        if not tag_filters and not workspace_filters:
             # No filters, use existing method
             return self.search_with_snippets(query, limit, offset, sort_by)
         
@@ -1396,26 +1534,39 @@ class ChatDatabase:
         fts_query = ' '.join(terms[:-1] + [terms[-1] + '*']) if terms else ''
         
         try:
-            # Build tag filter using subquery approach
-            # Find chats that have ALL specified tags
-            tag_placeholders = ','.join(['?'] * len(tag_filters))
+            # Build filter conditions
+            conditions = ["unified_fts MATCH ?"]
+            params = [fts_query]
             
-            # Subquery to get chat_ids that have all required tags
-            tag_subquery = f"""
-                SELECT chat_id 
-                FROM tags 
-                WHERE tag IN ({tag_placeholders})
-                GROUP BY chat_id
-                HAVING COUNT(DISTINCT tag) = ?
-            """
+            # Build tag filter using subquery approach
+            if tag_filters:
+                tag_placeholders = ','.join(['?'] * len(tag_filters))
+                tag_subquery = f"""
+                    SELECT chat_id 
+                    FROM tags 
+                    WHERE tag IN ({tag_placeholders})
+                    GROUP BY chat_id
+                    HAVING COUNT(DISTINCT tag) = ?
+                """
+                conditions.append(f"fts.chat_id IN ({tag_subquery})")
+                params.extend(tag_filters)
+                params.append(len(tag_filters))
+            
+            # Build workspace filter
+            if workspace_filters:
+                workspace_placeholders = ','.join(['?'] * len(workspace_filters))
+                conditions.append(f"c.workspace_id IN ({workspace_placeholders})")
+                params.extend(workspace_filters)
+            
+            where_clause = " AND ".join(conditions)
             
             # Get total count first
             cursor.execute(f"""
                 SELECT COUNT(DISTINCT fts.chat_id)
                 FROM unified_fts fts
-                WHERE unified_fts MATCH ?
-                AND fts.chat_id IN ({tag_subquery})
-            """, (fts_query, *tag_filters, len(tag_filters)))
+                INNER JOIN chats c ON fts.chat_id = c.id
+                WHERE {where_clause}
+            """, params)
             
             total = cursor.fetchone()[0]
             
@@ -1442,11 +1593,10 @@ class ChatDatabase:
                 FROM unified_fts fts
                 INNER JOIN chats c ON fts.chat_id = c.id
                 LEFT JOIN workspaces w ON c.workspace_id = w.id
-                WHERE unified_fts MATCH ?
-                AND fts.chat_id IN ({tag_subquery})
+                WHERE {where_clause}
                 {order_clause}
                 LIMIT ? OFFSET ?
-            """, (fts_query, *tag_filters, len(tag_filters), limit, offset))
+            """, params + [limit, offset])
             
             results = []
             chat_ids = []

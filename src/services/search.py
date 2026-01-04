@@ -109,15 +109,16 @@ class ChatSearchService:
         self, 
         query: str, 
         tag_filters: Optional[List[str]] = None,
+        workspace_filters: Optional[List[int]] = None,
         limit: int = 50, 
         offset: int = 0,
         sort_by: str = 'relevance'
-    ) -> Tuple[List[Dict[str, Any]], int, Dict[str, int]]:
+    ) -> Tuple[List[Dict[str, Any]], int, Dict[str, int], Dict[int, Dict[str, Any]]]:
         """
-        Search with tag facets for building filter UI.
+        Search with tag and workspace facets for building filter UI.
         
-        Returns search results along with tag facet counts, allowing users
-        to progressively filter results by tag.
+        Returns search results along with tag and workspace facet counts, allowing users
+        to progressively filter results by tag or workspace.
         
         Parameters
         ----
@@ -125,6 +126,8 @@ class ChatSearchService:
             Search query
         tag_filters : List[str], optional
             Only return chats that have ALL of these tags
+        workspace_filters : List[int], optional
+            Only return chats from these workspace IDs
         limit : int
             Results per page
         offset : int
@@ -134,20 +137,24 @@ class ChatSearchService:
             
         Returns
         ----
-        Tuple[List[Dict], int, Dict[str, int]]
-            (results, total_count, tag_facets)
+        Tuple[List[Dict], int, Dict[str, int], Dict[int, Dict[str, Any]]]
+            (results, total_count, tag_facets, workspace_facets)
             where tag_facets maps tag name to count of matching chats
+            and workspace_facets maps workspace_id to {'count': int, 'resolved_path': str, 'workspace_hash': str}
         """
-        # Get results (filtered if tags specified)
+        # Get results (filtered if tags/workspaces specified)
         results, total = self.db.search_with_snippets_filtered(
-            query, tag_filters, limit, offset, sort_by
+            query, tag_filters, workspace_filters, limit, offset, sort_by
         )
         
-        # Get facets (always show all available tags, even when filtering)
+        # Get tag facets (always show all available tags, even when filtering)
         # This allows users to see what other filters are available
-        facets = self.db.get_search_tag_facets(query, tag_filters=None)
+        tag_facets = self.db.get_search_tag_facets(query, tag_filters=None, workspace_filters=workspace_filters)
         
-        return results, total, facets
+        # Get workspace facets (always show all available workspaces, even when filtering)
+        workspace_facets = self.db.get_search_workspace_facets(query, tag_filters=tag_filters, workspace_filters=None)
+        
+        return results, total, tag_facets, workspace_facets
     
     def list_chats(self, workspace_id: Optional[int] = None, 
                    limit: int = 100, offset: int = 0,

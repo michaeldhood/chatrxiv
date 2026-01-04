@@ -63,23 +63,61 @@
         display: flex;
         align-items: center;
         gap: 6px;
+        cursor: pointer;
+        user-select: none;
+        padding: 4px 0;
+        transition: color 0.15s;
+    }
+    
+    .facet-section-title:hover {
+        color: var(--accent-blue);
     }
     
     .facet-section-title .dot {
         width: 8px;
         height: 8px;
         border-radius: 50%;
+        flex-shrink: 0;
     }
     
     .facet-section-title .dot.tech { background: var(--accent-blue); }
     .facet-section-title .dot.activity { background: var(--accent-green); }
     .facet-section-title .dot.topic { background: var(--accent-purple); }
     .facet-section-title .dot.other { background: var(--accent-orange); }
+    .facet-section-title .dot.workspace { background: var(--accent-orange); }
+    
+    .facet-section-title .collapse-icon {
+        margin-left: auto;
+        font-size: 10px;
+        color: var(--text-muted);
+        transition: transform 0.2s, color 0.15s;
+    }
+    
+    .facet-section-title:hover .collapse-icon {
+        color: var(--text-primary);
+    }
+    
+    .facet-section-title.collapsed .collapse-icon {
+        transform: rotate(-90deg);
+    }
     
     .facet-list {
         display: flex;
         flex-direction: column;
         gap: 4px;
+        overflow: hidden;
+        transition: max-height 0.3s ease-out, opacity 0.2s;
+    }
+    
+    .facet-section.collapsed .facet-list {
+        max-height: 0;
+        opacity: 0;
+        margin-bottom: 0;
+    }
+    
+    .facet-section:not(.collapsed) .facet-list {
+        max-height: 1000px;
+        opacity: 1;
     }
     
     .facet-item {
@@ -349,16 +387,25 @@
         <div class="facets-card">
             <h3>Filter by Tag</h3>
             
-            {% if active_filters %}
+            {% if active_filters or active_workspace_filters %}
             <div class="active-filters">
                 <div class="active-filters-title">Active Filters</div>
                 <div class="active-filter-tags">
                     {% for tag in active_filters %}
-                    <span class="active-filter-tag" onclick="removeFilter('{{ tag }}')">
+                    <span class="active-filter-tag" onclick="removeTagFilter('{{ tag }}')">
                         {{ tag.split('/')[-1] if '/' in tag else tag }}
                         <span class="remove">×</span>
                     </span>
                     {% endfor %}
+                    {% if active_workspace_filters %}
+                        {% for ws_id in active_workspace_filters %}
+                            {% set ws_info = workspace_facets.get(ws_id, {}) %}
+                            <span class="active-filter-tag" onclick="removeWorkspaceFilter({{ ws_id }})">
+                                {{ ws_info.get('resolved_path', 'Workspace ' + ws_id|string) or ('Workspace ' + ws_id|string) }}
+                                <span class="remove">×</span>
+                            </span>
+                        {% endfor %}
+                    {% endif %}
                 </div>
                 {% set clear_url = url_for('search', q=query) + ('&sort=' + sort_by if sort_by != 'relevance' else '') %}
                 <a href="{{ clear_url }}" class="clear-all-btn">Clear all filters</a>
@@ -366,41 +413,66 @@
             {% endif %}
             
             {% set has_facets = tag_facets and (tag_facets.tech or tag_facets.activity or tag_facets.topic or tag_facets.other) %}
+            {% set has_workspaces = workspace_facets and workspace_facets|length > 0 %}
+            
+            {% macro render_facet_section(title, facets, dimension, section_id) %}
+            {% if facets %}
+            <div class="facet-section" id="section-{{ section_id }}">
+                <div class="facet-section-title" onclick="toggleSection('{{ section_id }}')">
+                    <span class="dot {{ dimension }}"></span>
+                    <span>{{ title }}</span>
+                    <span class="collapse-icon">▼</span>
+                </div>
+                <div class="facet-list">
+                    {% for tag, count in facets.items()|sort(attribute='1', reverse=true) %}
+                    {% if loop.index <= 8 %}
+                    <div class="facet-item {% if tag in active_filters %}active{% endif %}" onclick="toggleTagFilter('{{ tag }}')">
+                        <input type="checkbox" id="facet-{{ tag|replace('/', '-') }}" 
+                               {% if tag in active_filters %}checked{% endif %}
+                               onchange="toggleTagFilter('{{ tag }}')">
+                        <label for="facet-{{ tag|replace('/', '-') }}">{{ tag.split('/')[-1] if '/' in tag else tag }}</label>
+                        <span class="count">{{ count }}</span>
+                    </div>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+            {% endmacro %}
             
             {% if has_facets %}
-                {% macro render_facet_section(title, facets, dimension) %}
-                {% if facets %}
-                <div class="facet-section">
-                    <div class="facet-section-title">
-                        <span class="dot {{ dimension }}"></span>
-                        {{ title }}
-                    </div>
-                    <div class="facet-list">
-                        {% for tag, count in facets.items()|sort(attribute='1', reverse=true) %}
-                        {% if loop.index <= 8 %}
-                        <div class="facet-item {% if tag in active_filters %}active{% endif %}" onclick="toggleFilter('{{ tag }}')">
-                            <input type="checkbox" id="facet-{{ tag|replace('/', '-') }}" 
-                                   {% if tag in active_filters %}checked{% endif %}
-                                   onchange="toggleFilter('{{ tag }}')">
-                            <label for="facet-{{ tag|replace('/', '-') }}">{{ tag.split('/')[-1] if '/' in tag else tag }}</label>
-                            <span class="count">{{ count }}</span>
-                        </div>
-                        {% endif %}
-                        {% endfor %}
-                    </div>
-                </div>
-                {% endif %}
-                {% endmacro %}
-                
-                {{ render_facet_section('Tech', tag_facets.tech, 'tech') }}
-                {{ render_facet_section('Activity', tag_facets.activity, 'activity') }}
-                {{ render_facet_section('Topic', tag_facets.topic, 'topic') }}
-                {{ render_facet_section('Other', tag_facets.other, 'other') }}
+                {{ render_facet_section('Tech', tag_facets.tech, 'tech', 'tech') }}
+                {{ render_facet_section('Activity', tag_facets.activity, 'activity', 'activity') }}
+                {{ render_facet_section('Topic', tag_facets.topic, 'topic', 'topic') }}
+                {{ render_facet_section('Other', tag_facets.other, 'other', 'other') }}
             {% else %}
                 <div class="no-facets">
                     No tags found for these results.<br>
                     <span style="font-size: 11px; opacity: 0.7;">Run <code>python -m src tag auto-tag-all</code> to tag chats.</span>
                 </div>
+            {% endif %}
+            
+            {% if has_workspaces %}
+            <div class="facet-section" id="section-workspace">
+                <div class="facet-section-title" onclick="toggleSection('workspace')">
+                    <span class="dot workspace"></span>
+                    <span>Workspace</span>
+                    <span class="collapse-icon">▼</span>
+                </div>
+                <div class="facet-list">
+                    {% for ws_id, ws_info in workspace_facets.items() %}
+                    <div class="facet-item {% if ws_id in active_workspace_filters %}active{% endif %}" onclick="toggleWorkspaceFilter({{ ws_id }})">
+                        <input type="checkbox" id="workspace-{{ ws_id }}" 
+                               {% if ws_id in active_workspace_filters %}checked{% endif %}
+                               onchange="toggleWorkspaceFilter({{ ws_id }})">
+                        <label for="workspace-{{ ws_id }}" title="{{ ws_info.get('resolved_path', '') or ws_info.get('workspace_hash', '') }}">
+                            {{ ws_info.get('resolved_path', '') or ws_info.get('workspace_hash', 'Workspace ' + ws_id|string) }}
+                        </label>
+                        <span class="count">{{ ws_info.get('count', 0) }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
             {% endif %}
         </div>
     </aside>
@@ -450,7 +522,7 @@
                     <div class="chat-tags">
                         {% for tag in chat.tags %}
                         {% set dimension = tag.split('/')[0] if '/' in tag else 'other' %}
-                        <span class="tag {{ dimension }}" onclick="toggleFilter('{{ tag }}')">{{ tag }}</span>
+                        <span class="tag {{ dimension }}" onclick="toggleTagFilter('{{ tag }}')">{{ tag }}</span>
                         {% endfor %}
                     </div>
                     {% endif %}
@@ -474,13 +546,14 @@
         {% if has_next or page > 1 %}
         <div class="pagination">
             {% set filter_params = '&tags=' + active_filters|join('&tags=') if active_filters else '' %}
+            {% set workspace_params = '&workspaces=' + active_workspace_filters|join('&workspaces=') if active_workspace_filters else '' %}
             {% set sort_param = '&sort=' + sort_by if sort_by != 'relevance' else '' %}
             {% if page > 1 %}
-            <a href="{{ url_for('search', q=query, page=page-1) }}{{ filter_params }}{{ sort_param }}">← Previous</a>
+            <a href="{{ url_for('search', q=query, page=page-1) }}{{ filter_params }}{{ workspace_params }}{{ sort_param }}">← Previous</a>
             {% endif %}
             <a class="current">Page {{ page }}</a>
             {% if has_next %}
-            <a href="{{ url_for('search', q=query, page=page+1) }}{{ filter_params }}{{ sort_param }}">Next →</a>
+            <a href="{{ url_for('search', q=query, page=page+1) }}{{ filter_params }}{{ workspace_params }}{{ sort_param }}">Next →</a>
             {% endif %}
         </div>
         {% endif %}
@@ -490,10 +563,19 @@
 <script>
     // Current active filters
     const activeFilters = {{ active_filters | tojson | safe }};
+    const activeWorkspaceFilters = {{ active_workspace_filters | tojson | safe }};
     const currentQuery = {{ query | tojson | safe }};
     const currentSort = {{ sort_by | tojson | safe }};
     
-    function toggleFilter(tag) {
+    // Collapsible sections state
+    function toggleSection(sectionId) {
+        const section = document.getElementById('section-' + sectionId);
+        if (section) {
+            section.classList.toggle('collapsed');
+        }
+    }
+    
+    function toggleTagFilter(tag) {
         const newFilters = [...activeFilters];
         const index = newFilters.indexOf(tag);
         
@@ -505,19 +587,39 @@
             newFilters.splice(index, 1);
         }
         
-        applyFilters(newFilters, currentSort);
+        applyFilters(newFilters, activeWorkspaceFilters, currentSort);
     }
     
-    function removeFilter(tag) {
+    function removeTagFilter(tag) {
         const newFilters = activeFilters.filter(t => t !== tag);
-        applyFilters(newFilters, currentSort);
+        applyFilters(newFilters, activeWorkspaceFilters, currentSort);
+    }
+    
+    function toggleWorkspaceFilter(workspaceId) {
+        const newFilters = [...activeWorkspaceFilters];
+        const index = newFilters.indexOf(workspaceId);
+        
+        if (index === -1) {
+            // Add filter
+            newFilters.push(workspaceId);
+        } else {
+            // Remove filter
+            newFilters.splice(index, 1);
+        }
+        
+        applyFilters(activeFilters, newFilters, currentSort);
+    }
+    
+    function removeWorkspaceFilter(workspaceId) {
+        const newFilters = activeWorkspaceFilters.filter(w => w !== workspaceId);
+        applyFilters(activeFilters, newFilters, currentSort);
     }
     
     function setSort(sortBy) {
-        applyFilters(activeFilters, sortBy);
+        applyFilters(activeFilters, activeWorkspaceFilters, sortBy);
     }
     
-    function applyFilters(filters, sortBy) {
+    function applyFilters(tagFilters, workspaceFilters, sortBy) {
         const params = new URLSearchParams();
         params.set('q', currentQuery);
         
@@ -525,8 +627,12 @@
             params.set('sort', sortBy);
         }
         
-        filters.forEach(tag => {
+        tagFilters.forEach(tag => {
             params.append('tags', tag);
+        });
+        
+        workspaceFilters.forEach(wsId => {
+            params.append('workspaces', wsId.toString());
         });
         
         window.location.href = '{{ url_for("search") }}?' + params.toString();
