@@ -7,8 +7,10 @@ import queue
 import threading
 import time
 import json
-from flask import Flask, render_template, request, jsonify, redirect, url_for, Response
 from pathlib import Path
+from urllib.parse import unquote, urlparse
+
+from flask import Flask, render_template, request, jsonify, redirect, url_for, Response
 
 from src.core.db import ChatDatabase
 from src.core.config import get_default_db_path
@@ -266,12 +268,45 @@ def search():
             else:
                 grouped_facets['other'][tag] = count
         
-        # Sort workspace facets by count (descending)
-        sorted_workspace_facets = dict(sorted(
-            workspace_facets.items(),
-            key=lambda x: x[1].get('count', 0),
-            reverse=True
-        )) if workspace_facets else {}
+        # Sort workspace facets by count (descending) and extract folder names
+        sorted_workspace_facets = {}
+        if workspace_facets:
+            for ws_id, ws_info in sorted(
+                workspace_facets.items(),
+                key=lambda x: x[1].get('count', 0),
+                reverse=True
+            ):
+                # Extract folder name from resolved_path
+                resolved_path = ws_info.get('resolved_path', '')
+                display_name = ''
+                
+                if resolved_path:
+                    # Handle file:// URIs
+                    if resolved_path.startswith('file://'):
+                        parsed = urlparse(resolved_path)
+                        path_str = unquote(parsed.path)
+                    else:
+                        path_str = resolved_path
+                    
+                    # Extract the last component (folder name)
+                    try:
+                        display_name = Path(path_str).name
+                    except (ValueError, OSError):
+                        display_name = path_str.split('/')[-1] if '/' in path_str else path_str
+                
+                # Fallback to shortened hash if no path
+                if not display_name:
+                    workspace_hash = ws_info.get('workspace_hash', '')
+                    if workspace_hash:
+                        display_name = workspace_hash[:12] + '...' if len(workspace_hash) > 12 else workspace_hash
+                    else:
+                        display_name = f'Workspace {ws_id}'
+                
+                # Create new dict with display_name
+                sorted_workspace_facets[ws_id] = {
+                    **ws_info,
+                    'display_name': display_name
+                }
         
         return render_template('search.html', 
                              query=query, 

@@ -401,7 +401,7 @@
                         {% for ws_id in active_workspace_filters %}
                             {% set ws_info = workspace_facets.get(ws_id, {}) %}
                             <span class="active-filter-tag" onclick="removeWorkspaceFilter({{ ws_id }})">
-                                {{ ws_info.get('resolved_path', 'Workspace ' + ws_id|string) or ('Workspace ' + ws_id|string) }}
+                                {{ ws_info.get('display_name', 'Workspace ' + ws_id|string) }}
                                 <span class="remove">×</span>
                             </span>
                         {% endfor %}
@@ -466,7 +466,7 @@
                                {% if ws_id in active_workspace_filters %}checked{% endif %}
                                onchange="toggleWorkspaceFilter({{ ws_id }})">
                         <label for="workspace-{{ ws_id }}" title="{{ ws_info.get('resolved_path', '') or ws_info.get('workspace_hash', '') }}">
-                            {{ ws_info.get('resolved_path', '') or ws_info.get('workspace_hash', 'Workspace ' + ws_id|string) }}
+                            {{ ws_info.get('display_name', 'Workspace ' + ws_id|string) }}
                         </label>
                         <span class="count">{{ ws_info.get('count', 0) }}</span>
                     </div>
