@@ -267,6 +267,128 @@
         background: rgba(206, 145, 120, 0.15);
         color: var(--accent-orange);
     }
+    
+    /* Jump Navigation FAB */
+    .jump-nav {
+        position: relative;
+    }
+    
+    .fab {
+        position: fixed;
+        bottom: 24px;
+        right: 24px;
+        width: 56px;
+        height: 56px;
+        border-radius: 50%;
+        background: var(--accent-blue);
+        border: none;
+        cursor: pointer;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        z-index: 1000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s;
+        color: white;
+        font-weight: 600;
+        font-size: 13px;
+    }
+    
+    .fab:hover {
+        transform: scale(1.05);
+        box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+    }
+    
+    .fab:active {
+        transform: scale(0.95);
+    }
+    
+    .fab-label {
+        font-size: 12px;
+        font-weight: 600;
+    }
+    
+    .jump-menu {
+        position: fixed;
+        bottom: 92px;
+        right: 24px;
+        width: 320px;
+        max-height: 400px;
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+        z-index: 999;
+        display: none;
+        overflow-y: auto;
+        overflow-x: hidden;
+    }
+    
+    .jump-menu.visible {
+        display: block;
+    }
+    
+    .jump-menu-header {
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--border-color);
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--text-secondary);
+    }
+    
+    .jump-item {
+        padding: 12px 16px;
+        cursor: pointer;
+        border-bottom: 1px solid var(--border-color);
+        transition: background 0.15s;
+        font-size: 13px;
+    }
+    
+    .jump-item:hover {
+        background: var(--bg-hover);
+    }
+    
+    .jump-item.active {
+        background: rgba(86, 156, 214, 0.15);
+        border-left: 3px solid var(--accent-blue);
+    }
+    
+    .jump-item-number {
+        display: inline-block;
+        width: 24px;
+        height: 24px;
+        line-height: 24px;
+        text-align: center;
+        background: var(--bg-tertiary);
+        border-radius: 4px;
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--text-secondary);
+        margin-right: 10px;
+        vertical-align: middle;
+    }
+    
+    .jump-item.active .jump-item-number {
+        background: var(--accent-blue);
+        color: white;
+    }
+    
+    .jump-item-preview {
+        color: var(--text-primary);
+        display: inline-block;
+        vertical-align: middle;
+        width: calc(100% - 40px);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    
+    .jump-item.active .jump-item-preview {
+        color: var(--accent-blue);
+        font-weight: 500;
+    }
 </style>
 {% endblock %}
 
@@ -375,6 +497,15 @@
                 <p>No messages in this chat</p>
             </div>
         {% endif %}
+    </div>
+    
+    <div class="jump-nav">
+        <button class="fab" id="jumpFab" title="Jump to user messages">
+            <span class="fab-label">0/0</span>
+        </button>
+        <div class="jump-menu" id="jumpMenu">
+            <!-- Populated by JS -->
+        </div>
     </div>
 </div>
 {% endblock %}
@@ -504,6 +635,195 @@
         if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'C') {
             e.preventDefault();
             copyChatToClipboard();
+        }
+    });
+    
+    // Jump Navigation System
+    document.addEventListener('DOMContentLoaded', function() {
+        const fab = document.getElementById('jumpFab');
+        if (!fab) {
+            console.warn('FAB not found');
+            return;
+        }
+        
+        const fabLabel = fab.querySelector('.fab-label');
+        const jumpMenu = document.getElementById('jumpMenu');
+        
+        // Collect all user messages - try multiple selector approaches
+        let userMessages = Array.from(document.querySelectorAll('.message.user'));
+        
+        // Fallback: if no matches, try finding by role text content
+        if (userMessages.length === 0) {
+            const allMessages = Array.from(document.querySelectorAll('.message'));
+            console.log('Found', allMessages.length, 'total messages');
+            userMessages = allMessages.filter(msg => {
+                const roleEl = msg.querySelector('.role');
+                const isUser = roleEl && roleEl.textContent.trim().toLowerCase() === 'user';
+                if (isUser) {
+                    console.log('Found user message:', msg);
+                }
+                return isUser;
+            });
+            console.log('Found', userMessages.length, 'user messages via fallback');
+        } else {
+            console.log('Found', userMessages.length, 'user messages via selector');
+        }
+        
+        let currentIndex = -1;
+        let observer = null;
+        
+        // If no user messages, hide FAB
+        if (userMessages.length === 0) {
+            fab.style.display = 'none';
+            return;
+        }
+        
+        // Assign IDs to user messages
+        userMessages.forEach((msg, index) => {
+            msg.id = `user-msg-${index}`;
+        });
+        
+        // Extract text preview from message (first 60 chars)
+        function getMessagePreview(messageElement) {
+            const contentEl = messageElement.querySelector('.message-content');
+            if (!contentEl) return 'No content';
+            
+            // Get text content, stripping HTML tags
+            const text = contentEl.textContent || contentEl.innerText || '';
+            return text.trim().substring(0, 60) + (text.length > 60 ? '...' : '');
+        }
+        
+        // Build menu items
+        function buildMenu() {
+            jumpMenu.innerHTML = '<div class="jump-menu-header">User Messages</div>';
+            
+            userMessages.forEach((msg, index) => {
+                const preview = getMessagePreview(msg);
+                const item = document.createElement('div');
+                item.className = 'jump-item';
+                item.dataset.index = index;
+                item.innerHTML = `
+                    <span class="jump-item-number">${index + 1}</span>
+                    <span class="jump-item-preview">${preview}</span>
+                `;
+                item.addEventListener('click', () => {
+                    scrollToMessage(index);
+                    jumpMenu.classList.remove('visible');
+                });
+                jumpMenu.appendChild(item);
+            });
+        }
+        
+        // Scroll to a specific user message
+        function scrollToMessage(index) {
+            if (index < 0 || index >= userMessages.length) return;
+            
+            const message = userMessages[index];
+            message.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            updateCurrentIndex(index);
+        }
+        
+        // Update current index and UI
+        function updateCurrentIndex(index) {
+            currentIndex = index;
+            
+            // Update FAB label
+            fabLabel.textContent = `${index + 1}/${userMessages.length}`;
+            
+            // Update active menu item
+            const items = jumpMenu.querySelectorAll('.jump-item');
+            items.forEach((item, i) => {
+                if (i === index) {
+                    item.classList.add('active');
+                } else {
+                    item.classList.remove('active');
+                }
+            });
+        }
+        
+        // Set up IntersectionObserver to track which message is in view
+        function setupObserver() {
+            const options = {
+                root: null,
+                rootMargin: '-20% 0px -60% 0px',
+                threshold: 0
+            };
+            
+            observer = new IntersectionObserver((entries) => {
+                // Find the first entry that's intersecting (most visible)
+                const visibleEntries = entries
+                    .filter(e => e.isIntersecting)
+                    .sort((a, b) => {
+                        // Sort by position in viewport (top to bottom)
+                        return a.boundingClientRect.top - b.boundingClientRect.top;
+                    });
+                
+                if (visibleEntries.length > 0) {
+                    const visibleMessage = visibleEntries[0].target;
+                    const index = userMessages.indexOf(visibleMessage);
+                    if (index !== -1 && index !== currentIndex) {
+                        updateCurrentIndex(index);
+                    }
+                }
+            }, options);
+            
+            // Observe all user messages
+            userMessages.forEach(msg => observer.observe(msg));
+        }
+        
+        // Toggle menu visibility
+        fab.addEventListener('click', (e) => {
+            e.stopPropagation();
+            console.log('FAB clicked, menu visible:', jumpMenu.classList.contains('visible'));
+            jumpMenu.classList.toggle('visible');
+            console.log('Menu items:', jumpMenu.querySelectorAll('.jump-item').length);
+        });
+        
+        // Close menu when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!fab.contains(e.target) && !jumpMenu.contains(e.target)) {
+                jumpMenu.classList.remove('visible');
+            }
+        });
+        
+        // Keyboard shortcuts: [ for previous, ] for next
+        document.addEventListener('keydown', (e) => {
+            // Only handle if not typing in an input/textarea
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+                return;
+            }
+            
+            if (e.key === '[') {
+                e.preventDefault();
+                const prevIndex = Math.max(0, currentIndex - 1);
+                scrollToMessage(prevIndex);
+            } else if (e.key === ']') {
+                e.preventDefault();
+                const nextIndex = Math.min(userMessages.length - 1, currentIndex + 1);
+                scrollToMessage(nextIndex);
+            }
+        });
+        
+        // Initialize
+        buildMenu();
+        setupObserver();
+        
+        // Set initial index to first message if at top of page
+        if (window.scrollY < 100) {
+            updateCurrentIndex(0);
+        } else {
+            // Otherwise, find the first visible message
+            setTimeout(() => {
+                const firstVisible = userMessages.findIndex(msg => {
+                    const rect = msg.getBoundingClientRect();
+                    return rect.top >= 0 && rect.top < window.innerHeight;
+                });
+                if (firstVisible !== -1) {
+                    updateCurrentIndex(firstVisible);
+                } else {
+                    updateCurrentIndex(0);
+                }
+            }, 100);
         }
     });
 </script>
