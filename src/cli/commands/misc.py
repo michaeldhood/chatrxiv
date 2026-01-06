@@ -18,12 +18,60 @@ from src.cli.orchestrators.batch import BatchOrchestrator
 
 
 @click.command()
-def info():
-    """Show information about Cursor installation."""
+@click.option('--db-path', type=click.Path(), help='Path to database file', envvar='CHATRXIV_DB')
+@click.pass_context
+def info(ctx, db_path):
+    """Show information about Cursor installation and database stats."""
+    from src.core.db import ChatDatabase
+    from src.core.config import get_default_db_path
+    
     cursor_path = str(get_cursor_workspace_storage_path())
     click.echo(f"Cursor chat path: {cursor_path}")
     click.echo(f"Python: {sys.version}")
     click.echo(f"Platform: {sys.platform}")
+    
+    # Show database stats if database exists
+    db_file = Path(db_path) if db_path else get_default_db_path()
+    if db_file.exists():
+        click.echo(f"\nDatabase: {db_file}")
+        click.echo(f"  Size: {db_file.stat().st_size / 1024:.1f} KB")
+        
+        try:
+            db = ChatDatabase(str(db_file))
+            
+            # Chat counts
+            total_chats = db.count_chats()
+            non_empty = db.count_chats(empty_filter='non_empty')
+            empty = db.count_chats(empty_filter='empty')
+            
+            click.echo(f"\nChat Statistics:")
+            click.echo(f"  Total chats: {total_chats}")
+            click.echo(f"  With messages: {non_empty}")
+            click.echo(f"  Empty: {empty}")
+            
+            # Workspace count
+            cursor = db.conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM workspaces")
+            workspace_count = cursor.fetchone()[0]
+            click.echo(f"  Workspaces: {workspace_count}")
+            
+            # Tag stats
+            tags = db.get_all_tags()
+            if tags:
+                click.echo(f"  Tags: {len(tags)} unique tags")
+            
+            # Last updated
+            last_updated = db.get_last_updated_at()
+            if last_updated:
+                click.echo(f"\n  Last updated: {last_updated}")
+            
+            db.close()
+            
+        except Exception as e:
+            click.secho(f"  Error reading database: {e}", fg='yellow')
+    else:
+        click.echo(f"\nDatabase: {db_file} (not found)")
+        click.echo("  Run 'python -m src ingest' to create and populate the database.")
 
 
 @click.command()
