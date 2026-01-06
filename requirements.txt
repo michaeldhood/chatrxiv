@@ -5,4 +5,12 @@ flask>=2.0.0
 dlt[rest_api]>=1.0.0
 watchdog>=3.0.0  # Optional: for file system watching (falls back to polling if unavailable)
 gevent>=23.9.0  # For async Flask support (SSE)
-click>=8.0.0  # Modern CLI framework for refactored CLI 
+click>=8.0.0  # Modern CLI framework for refactored CLI
+
+# Divergence detection dependencies
+sentence-transformers>=2.2.0  # For embedding-based drift analysis
+bertopic>=0.16.0  # For topic modeling
+anthropic>=0.39.0  # For LLM-as-Judge analysis
+numpy>=1.21.0  # For numerical operations
+scipy>=1.7.0  # For distance calculations
+scikit-learn>=1.0.0  # For clustering (used by BERTopic) 
