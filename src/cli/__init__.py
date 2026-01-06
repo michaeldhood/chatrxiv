@@ -88,6 +88,10 @@ cli.add_command(journal)
 from .commands.web import web
 cli.add_command(web)
 
+# Analysis command
+from .commands.analyze import analyze
+cli.add_command(analyze)
+
 # Phase 6: Watch commands
 from .commands.watch import watch, update_modes
 cli.add_command(watch)
