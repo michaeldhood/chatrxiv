@@ -1,5 +1,5 @@
 """
-Modern Click-based CLI for Cursor Chat Extractor.
+Modern Click-based CLI for chatrxiv.
 
 This module provides the main Click group and entry point for the refactored CLI.
 Commands are organized in the commands/ subpackage.
@@ -22,7 +22,7 @@ logging.basicConfig(
 @click.pass_context
 def cli(ctx, verbose):
     """
-    Cursor Chat Extractor - Tools for working with Cursor AI chat logs.
+    chatrxiv - Tools for working with Cursor AI chat logs.
 
     This CLI provides commands for extracting, converting, searching, and managing
     chat data from the Cursor AI editor.

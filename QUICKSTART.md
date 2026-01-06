@@ -69,11 +69,11 @@ Then open http://127.0.0.1:5000 in your browser.
 ## Database Location
 
 The database is stored at:
-- **macOS**: `~/Library/Application Support/cursor-chats/chats.db`
-- **Linux**: `~/.local/share/cursor-chats/chats.db`
-- **Windows**: `%APPDATA%/cursor-chats/chats.db`
+- **macOS**: `~/Library/Application Support/chatrxiv/chats.db`
+- **Linux**: `~/.local/share/chatrxiv/chats.db`
+- **Windows**: `%APPDATA%/chatrxiv/chats.db`
 
-Override with `--db-path` flag or `CURSOR_CHATS_DB_PATH` environment variable.
+Override with `--db-path` flag or `CHATRXIV_DB_PATH` environment variable.
 
 ## Migration from Old System
 

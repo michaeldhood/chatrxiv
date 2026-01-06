@@ -3,7 +3,7 @@ Here’s a consolidated version of the plan, merging the goals/success criteria 
 ---
 
 ## **Team: Cursor**
-All `cursor_chats` development will be tracked within the "Cursor" team in Linear, using the existing MCP server for continuous communication between Cursor and Linear to fetch and complete tasks.
+All `chatrxiv` development will be tracked within the "Cursor" team in Linear, using the existing MCP server for continuous communication between Cursor and Linear to fetch and complete tasks.
 
 ---
 
@@ -250,4 +250,4 @@ The existing MCP server will manage task flow between Cursor and Linear:
 ---
 
 ## **Summary**
-This consolidated plan organizes `cursor_chats` into three Linear projects with 12 milestones and 40 issues, merging goals, success criteria, and tasks for clarity. The MCP server integration leverages the existing setup to keep Cursor in sync with Linear, ensuring tasks like "CUR-1" are fetched and completed seamlessly. This structure is primed for import into Linear—let me know if you need a specific CSV file or API script to get it loaded!
+This consolidated plan organizes `chatrxiv` into three Linear projects with 12 milestones and 40 issues, merging goals, success criteria, and tasks for clarity. The MCP server integration leverages the existing setup to keep Cursor in sync with Linear, ensuring tasks like "CUR-1" are fetched and completed seamlessly. This structure is primed for import into Linear—let me know if you need a specific CSV file or API script to get it loaded!

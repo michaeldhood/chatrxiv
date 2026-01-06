@@ -101,8 +101,9 @@ class GlobalComposerReader:
                     continue
 
                 # Cursor occasionally stores NULL/empty payloads; skip safely.
+                # This is common (deleted chats leave keys with NULL values).
                 if value_data is None:
-                    logger.warning(
+                    logger.debug(
                         "Skipping composer %s because value is NULL", composer_id
                     )
                     continue

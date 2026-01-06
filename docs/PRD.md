@@ -1,8 +1,8 @@
-Below is a high-level Product Requirements Document (PRD) for the `cursor_chats` project, tailored to your goals of extracting knowledge, tracking progress, journaling, and feeding durable context back to Cursor—complete with some comical elements as requested! The development is broken into phases based on priority, and a testing strategy is integrated concurrently to ensure quality throughout.
+Below is a high-level Product Requirements Document (PRD) for the `chatrxiv` project, tailored to your goals of extracting knowledge, tracking progress, journaling, and feeding durable context back to Cursor—complete with some comical elements as requested! The development is broken into phases based on priority, and a testing strategy is integrated concurrently to ensure quality throughout.
 
 ---
 
-## **Product Requirements Document (PRD) for `cursor_chats`**
+## **Product Requirements Document (PRD) for `chatrxiv`**
 
 ### **1. Vision and Scope**
 

@@ -1,4 +1,4 @@
-# Cursor Chat Extractor
+# chatrxiv
 
 A collection of tools for extracting, processing, and viewing chat logs from the Cursor AI editor.
 

@@ -13,11 +13,15 @@ from .base import WebConversationReader
 logger = logging.getLogger(__name__)
 
 # #region agent log
-DEBUG_LOG_PATH = "/Users/michaelhood/git/build/cursor_chats/.cursor/debug.log"
+import os
 def _debug_log(hypothesis_id: str, location: str, message: str, data: dict = None):
     import time
+    # Use project root relative path instead of hardcoded absolute path
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    debug_log_path = os.path.join(project_root, ".cursor", "debug.log")
     entry = {"hypothesisId": hypothesis_id, "location": location, "message": message, "data": data or {}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session"}
-    with open(DEBUG_LOG_PATH, "a") as f: f.write(json.dumps(entry) + "\n")
+    os.makedirs(os.path.dirname(debug_log_path), exist_ok=True)
+    with open(debug_log_path, "a") as f: f.write(json.dumps(entry) + "\n")
 # #endregion
 
 

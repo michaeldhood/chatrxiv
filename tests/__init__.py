@@ -1,3 +1,3 @@
 """
-Test package for cursor_chats.
+Test package for chatrxiv.
 """ 

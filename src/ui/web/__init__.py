@@ -1,4 +1,4 @@
 """
-Flask web UI for Cursor Chats.
+Flask web UI for chatrxiv.
 """
 

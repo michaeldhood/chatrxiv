@@ -1,5 +1,5 @@
 """
-Core domain models and database layer for Cursor Chats aggregator.
+Core domain models and database layer for chatrxiv aggregator.
 """
 
 from src.core.config import (

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Database View - Cursor Chats{% endblock %}
+{% block title %}Database View - chatrxiv{% endblock %}
 
 {% block extra_head %}
 <style>
@@ -229,6 +229,11 @@
         color: var(--accent-purple);
     }
     
+    .source-badge.chatgpt {
+        background: rgba(78, 201, 176, 0.15);
+        color: var(--accent-green);
+    }
+    
     .messages-count {
         display: inline-block;
         padding: 3px 10px;
@@ -449,6 +454,7 @@
                 <option value="" {% if not source_filter %}selected{% endif %}>All sources</option>
                 <option value="cursor" {% if source_filter == 'cursor' %}selected{% endif %}>Cursor</option>
                 <option value="claude.ai" {% if source_filter == 'claude.ai' %}selected{% endif %}>Claude.ai</option>
+                <option value="chatgpt" {% if source_filter == 'chatgpt' %}selected{% endif %}>ChatGPT</option>
             </select>
         </div>
         
@@ -488,7 +494,7 @@
                         <span class="mode-badge {{ chat.mode }}">{{ chat.mode }}</span>
                     </td>
                     <td class="col-source">
-                        <span class="source-badge {% if chat.source == 'claude.ai' %}claude{% else %}cursor{% endif %}">
+                        <span class="source-badge {% if chat.source == 'claude.ai' %}claude{% elif chat.source == 'chatgpt' %}chatgpt{% else %}cursor{% endif %}">
                             {{ chat.source or 'cursor' }}
                         </span>
                     </td>

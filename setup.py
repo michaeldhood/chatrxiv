@@ -1,15 +1,15 @@
 """
-Setup script for the cursor_chats package.
+Setup script for the chatrxiv package.
 """
 from setuptools import setup, find_packages
 
 setup(
-    name="cursor_chats",
+    name="chatrxiv",
     version="0.1.0",
     description="Tools for extracting and processing Cursor AI chat logs",
     author="Cursor User",
     author_email="user@example.com",
-    url="https://github.com/username/cursor-chats",
+    url="https://github.com/michaeldhood/chatrxiv",
     packages=find_packages(),
     install_requires=[
         "pandas>=1.0.0",
@@ -17,7 +17,7 @@ setup(
     python_requires=">=3.7",
     entry_points={
         "console_scripts": [
-            "cursor-chats=src.cli:main",
+            "chatrxiv=src.cli:main",
         ],
     },
     classifiers=[

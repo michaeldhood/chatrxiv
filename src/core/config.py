@@ -1,5 +1,5 @@
 """
-Configuration and path resolution for Cursor Chats.
+Configuration and path resolution for chatrxiv.
 
 Centralizes OS-specific path logic for Cursor data directories and default database location.
 """
@@ -92,13 +92,13 @@ def get_default_db_path() -> Path:
     home = Path.home()
     
     if system == 'Darwin':  # macOS
-        base_dir = home / "Library" / "Application Support" / "cursor-chats"
+        base_dir = home / "Library" / "Application Support" / "chatrxiv"
     elif system == 'Windows':
-        base_dir = home / "AppData" / "Roaming" / "cursor-chats"
+        base_dir = home / "AppData" / "Roaming" / "chatrxiv"
     elif system == 'Linux':
-        base_dir = home / ".local" / "share" / "cursor-chats"
+        base_dir = home / ".local" / "share" / "chatrxiv"
     else:
-        base_dir = home / ".cursor-chats"
+        base_dir = home / ".chatrxiv"
     
     base_dir.mkdir(parents=True, exist_ok=True)
     return base_dir / "chats.db"

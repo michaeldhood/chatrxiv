@@ -42,7 +42,7 @@ def broadcast_update():
 
 def get_db():
     """Get database instance."""
-    db_path = os.getenv('CURSOR_CHATS_DB_PATH') or str(get_default_db_path())
+    db_path = os.getenv('CHATRXIV_DB_PATH') or str(get_default_db_path())
     return ChatDatabase(db_path)
 
 

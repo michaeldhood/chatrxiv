@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Cursor Chat Extractor is a collection of Python tools for extracting, processing, and viewing chat logs from the Cursor AI editor. The project extracts data from Cursor's SQLite databases and converts it to multiple formats (CSV, JSON, Markdown) for analysis and preservation.
+chatrxiv is a collection of Python tools for extracting, processing, and viewing chat logs from the Cursor AI editor. The project extracts data from Cursor's SQLite databases and converts it to multiple formats (CSV, JSON, Markdown) for analysis and preservation.
 
 ## Development Commands
 

@@ -1,4 +1,4 @@
-## Cursor Chats App DB Schema (`chats.db`)
+## chatrxiv App DB Schema (`chats.db`)
 
 This document describes the **local aggregation database** schema created/managed by `ChatDatabase` in `src/core/db.py`.
 

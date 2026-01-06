@@ -238,7 +238,7 @@ python -m src list
 python -m src export --format markdown
 ```
 
-**Database Location:** All chats are stored in the same database (`~/.cursor-chats/chats.db` or platform equivalent) with a `source` field distinguishing them:
+**Database Location:** All chats are stored in the same database (`~/.chatrxiv/chats.db` or platform equivalent) with a `source` field distinguishing them:
 - `source='cursor'` - Cursor composer chats
 - `source='claude'` - Claude.ai chats
 - `source='chatgpt'` - ChatGPT chats

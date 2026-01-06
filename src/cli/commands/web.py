@@ -33,12 +33,11 @@ def web(host, port, db_path):
     for live frontend updates when new chats are ingested.
     """
     if db_path:
-        os.environ['CURSOR_CHATS_DB_PATH'] = str(db_path)
+        os.environ['CHATRXIV_DB_PATH'] = str(db_path)
     
-    # Monkey patch for gevent async support (required for SSE)
+    # Import gevent WSGIServer for async support (required for SSE)
+    # Note: monkey.patch_all() is already called in __main__.py before imports
     try:
-        from gevent import monkey
-        monkey.patch_all()
         from gevent.pywsgi import WSGIServer
     except ImportError:
         click.secho(
