@@ -51,13 +51,16 @@ def cleanup(ctx, result, **kwargs):
 
 # Import and register command groups here as they're migrated
 # Phase 2: Simple commands (info, list, view)
-from .commands.misc import info, list, view, export_composer, batch
+from .commands.misc import info, list, view, export_composer, batch, load_activity, visualize, estimate_costs
 
 cli.add_command(info)
 cli.add_command(list)
 cli.add_command(view)
 cli.add_command(export_composer)
 cli.add_command(batch)
+cli.add_command(load_activity)
+cli.add_command(visualize)
+cli.add_command(estimate_costs)
 
 # Phase 3: Extract/convert commands
 from .commands.extract import extract, convert

@@ -486,6 +486,7 @@ class ChatAggregator:
         
         messages = []
         relevant_files = set()
+        detected_models = set()  # Track all models used in this chat
         
         for bubble in conversation:
             bubble_type = bubble.get("type")
@@ -493,6 +494,10 @@ class ChatAggregator:
                 role = MessageRole.USER
             elif bubble_type == 2:  # AI response
                 role = MessageRole.ASSISTANT
+                # Extract model information from AI responses
+                model = bubble.get("modelType") or bubble.get("model")
+                if model:
+                    detected_models.add(model)
             else:
                 continue  # Skip unknown types
             
@@ -525,6 +530,12 @@ class ChatAggregator:
             for file_path in bubble.get("relevantFiles", []):
                 relevant_files.add(file_path)
         
+        # Determine primary model (use most common, or first if all equal)
+        primary_model = None
+        if detected_models:
+            # Use the first detected model (most recent conversations tend to use consistent models)
+            primary_model = list(detected_models)[0]
+        
         # Create chat
         chat = Chat(
             cursor_composer_id=composer_id,
@@ -536,6 +547,7 @@ class ChatAggregator:
             source="cursor",
             messages=messages,
             relevant_files=list(relevant_files),
+            model=primary_model,
         )
         
         return chat
@@ -937,7 +949,7 @@ class ChatAggregator:
             )
             messages.append(message)
         
-        # Extract model (store in mode field for now, could add separate field later)
+        # Extract model
         model = conversation_data.get("model")
         mode = ChatMode.CHAT  # Claude conversations are always chat mode
         
@@ -952,6 +964,7 @@ class ChatAggregator:
             source="claude.ai",
             messages=messages,
             relevant_files=[],  # Claude API doesn't expose relevant files in this format
+            model=model,
         )
         
         return chat

@@ -5,4 +5,5 @@ flask>=2.0.0
 dlt[rest_api]>=1.0.0
 watchdog>=3.0.0  # Optional: for file system watching (falls back to polling if unavailable)
 gevent>=23.9.0  # For async Flask support (SSE)
-click>=8.0.0  # Modern CLI framework for refactored CLI 
+click>=8.0.0  # Modern CLI framework for refactored CLI
+matplotlib>=3.5.0  # For visualization 
