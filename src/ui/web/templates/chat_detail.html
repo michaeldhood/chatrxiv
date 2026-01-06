@@ -267,6 +267,70 @@
         background: rgba(206, 145, 120, 0.15);
         color: var(--accent-orange);
     }
+
+    .segments-section {
+        margin: 20px 24px;
+        padding: 16px;
+        background: var(--bg-tertiary);
+        border-radius: 8px;
+        border: 1px solid var(--border-color);
+    }
+
+    .segments-section strong {
+        display: block;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--text-secondary);
+        margin-bottom: 12px;
+    }
+
+    .segments-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px 16px;
+        font-size: 13px;
+        color: var(--text-secondary);
+        margin-bottom: 12px;
+    }
+
+    .segments-list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        gap: 10px;
+    }
+
+    .segment-item {
+        padding: 12px;
+        border-radius: 8px;
+        border: 1px solid var(--border-color);
+        background: var(--bg-secondary);
+    }
+
+    .segment-item .title-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 6px;
+    }
+
+    .segment-item .range {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 12px;
+        color: var(--text-muted);
+        font-weight: 500;
+    }
+
+    .segment-item .summary {
+        font-size: 13px;
+        color: var(--text-secondary);
+        line-height: 1.5;
+    }
 </style>
 {% endblock %}
 
@@ -318,6 +382,30 @@
         <ul>
             {% for file in chat.files %}
             <li><code>{{ file }}</code></li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+
+    {% if chat.topic_analysis and chat.segments %}
+    <div class="segments-section">
+        <strong>Segments</strong>
+        <div class="segments-meta">
+            <span>Score: {{ "%.3f"|format(chat.topic_analysis.overall_score or 0.0) }}</span>
+            <span>Segments: {{ chat.topic_analysis.num_segments or (chat.segments|length) }}</span>
+            <span>Split suggested: {{ 'yes' if chat.topic_analysis.should_split else 'no' }}</span>
+        </div>
+        <ul class="segments-list">
+            {% for seg in chat.segments %}
+            <li class="segment-item">
+                <div class="title-row">
+                    <span>{{ seg.topic_label or ('Segment ' ~ loop.index) }}</span>
+                    <span class="range">[{{ seg.start_message_idx }}..{{ seg.end_message_idx }}] drift={{ "%.3f"|format(seg.divergence_score or 0.0) }}</span>
+                </div>
+                {% if seg.summary %}
+                <div class="summary">{{ seg.summary }}</div>
+                {% endif %}
+            </li>
             {% endfor %}
         </ul>
     </div>
