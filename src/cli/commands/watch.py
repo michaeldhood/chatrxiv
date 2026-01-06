@@ -43,9 +43,19 @@ from src.core.models import ChatMode
     is_flag=True,
     help='Force use of polling instead of file system events'
 )
+@click.option(
+    '--analyze-topics/--no-analyze-topics',
+    default=True,
+    help='After ingestion, compute topic divergence + segments (default: on)'
+)
+@click.option(
+    '--use-llm/--no-llm',
+    default=False,
+    help='Use LLM judge + segment summaries in background (default: off)'
+)
 @db_option
 @click.pass_context
-def watch(ctx, source, poll_interval, debounce, use_polling, db_path):
+def watch(ctx, source, poll_interval, debounce, use_polling, analyze_topics, use_llm, db_path):
     """
     Watch for changes and automatically ingest (daemon mode).
     
@@ -87,6 +97,16 @@ def watch(ctx, source, poll_interval, debounce, use_polling, db_path):
                         stats = thread_aggregator.ingest_claude(incremental=True)
                         click.echo(f"Auto-ingestion: {stats['ingested']} ingested, "
                                  f"{stats['skipped']} skipped, {stats['errors']} errors")
+
+                if analyze_topics:
+                    try:
+                        from src.services.topic_analysis import TopicAnalysisService
+
+                        svc = TopicAnalysisService(thread_db)
+                        tstats = svc.backfill(incremental=True, include_llm=use_llm)
+                        click.echo(f"Auto-topic-analysis: {tstats['processed']} processed, {tstats['errors']} errors")
+                    except Exception as e:
+                        click.secho(f"Error during automatic topic analysis: {e}", fg='red', err=True)
             except Exception as e:
                 click.secho(f"Error during automatic ingestion: {e}", fg='red', err=True)
             finally:
@@ -110,6 +130,16 @@ def watch(ctx, source, poll_interval, debounce, use_polling, db_path):
                 stats = aggregator.ingest_claude(incremental=True)
                 click.echo(f"Initial ingestion: {stats['ingested']} ingested, "
                          f"{stats['skipped']} skipped, {stats['errors']} errors")
+
+        if analyze_topics:
+            try:
+                from src.services.topic_analysis import TopicAnalysisService
+
+                svc = TopicAnalysisService(db)
+                tstats = svc.backfill(incremental=True, include_llm=use_llm)
+                click.echo(f"Initial topic analysis: {tstats['processed']} processed, {tstats['errors']} errors")
+            except Exception as e:
+                click.secho(f"Error during initial topic analysis: {e}", fg='red', err=True)
         
         # Start watcher
         from src.services.watcher import IngestionWatcher

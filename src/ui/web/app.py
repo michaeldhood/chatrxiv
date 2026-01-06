@@ -308,6 +308,16 @@ def chat_detail(chat_id):
             })
         
         chat['processed_messages'] = processed_messages
+
+        # Attach topic analysis + segments if available
+        topic_analysis = db.get_topic_analysis(chat_id)
+        if topic_analysis and topic_analysis.get("raw_json"):
+            try:
+                topic_analysis["raw_json"] = json.loads(topic_analysis["raw_json"])
+            except Exception:
+                pass
+        chat['topic_analysis'] = topic_analysis
+        chat['segments'] = db.get_chat_segments(chat_id)
         
         return render_template('chat_detail.html', chat=chat)
     finally:
@@ -334,6 +344,29 @@ def api_chats():
             'limit': limit,
             'filter': empty_filter
         })
+    finally:
+        db.close()
+
+
+@app.route('/api/chat/<int:chat_id>/segments')
+def api_chat_segments(chat_id: int):
+    """API endpoint returning stored topic analysis + segments for a chat."""
+    db = get_db()
+    try:
+        analysis = db.get_topic_analysis(chat_id)
+        if analysis and analysis.get("raw_json"):
+            try:
+                analysis["raw_json"] = json.loads(analysis["raw_json"])
+            except Exception:
+                pass
+        return jsonify(
+            {
+                "chat_id": chat_id,
+                "analysis": analysis,
+                "segments": db.get_chat_segments(chat_id),
+                "judgements": db.get_message_judgements(chat_id),
+            }
+        )
     finally:
         db.close()
 

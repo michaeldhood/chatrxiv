@@ -195,6 +195,89 @@ class ChatDatabase:
                 stats_errors INTEGER DEFAULT 0
             )
         """)
+
+        # ============================================================
+        # Topic divergence + segmentation tables
+        # ============================================================
+
+        # Per-chat divergence report (one row per chat_id, overwritten on recompute)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS chat_topic_analysis (
+                chat_id INTEGER PRIMARY KEY,
+                computed_at TEXT,
+                source_last_updated_at TEXT,
+                analysis_version INTEGER DEFAULT 1,
+
+                overall_score REAL DEFAULT 0.0,
+                embedding_drift_score REAL DEFAULT 0.0,
+                topic_entropy_score REAL DEFAULT 0.0,
+                topic_transition_score REAL DEFAULT 0.0,
+                llm_relevance_score REAL,
+
+                num_segments INTEGER DEFAULT 0,
+                should_split INTEGER DEFAULT 0,
+                suggested_split_points TEXT,
+                topic_summaries TEXT,
+
+                raw_json TEXT,
+                FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE
+            )
+        """)
+
+        # Segment records (multiple per chat)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS chat_segments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                chat_id INTEGER NOT NULL,
+                start_message_idx INTEGER NOT NULL,
+                end_message_idx INTEGER NOT NULL,
+                parent_segment_id INTEGER,
+                topic_label TEXT,
+                summary TEXT,
+                divergence_score REAL DEFAULT 0.0,
+                anchor_embedding TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE,
+                FOREIGN KEY (parent_segment_id) REFERENCES chat_segments(id) ON DELETE SET NULL
+            )
+        """)
+
+        # LLM judgements per message (optional, only when LLM enabled)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS chat_message_judgements (
+                chat_id INTEGER NOT NULL,
+                message_idx INTEGER NOT NULL,
+                relation TEXT,
+                relevance_score REAL,
+                suggested_segment_break INTEGER DEFAULT 0,
+                reasoning TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (chat_id, message_idx),
+                FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE
+            )
+        """)
+
+        # Cross-segment links (manual or computed)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS segment_links (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_segment_id INTEGER NOT NULL,
+                target_segment_id INTEGER NOT NULL,
+                link_type TEXT NOT NULL,
+                similarity REAL,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (source_segment_id) REFERENCES chat_segments(id) ON DELETE CASCADE,
+                FOREIGN KEY (target_segment_id) REFERENCES chat_segments(id) ON DELETE CASCADE
+            )
+        """)
+
+        # Indexes for topic/segment queries
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_topic_analysis_chat ON chat_topic_analysis(chat_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_segments_chat ON chat_segments(chat_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_segments_range ON chat_segments(chat_id, start_message_idx, end_message_idx)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_judgements_chat ON chat_message_judgements(chat_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_segment_links_source ON segment_links(source_segment_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_segment_links_target ON segment_links(target_segment_id)")
         
         # Indexes for performance
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_chats_composer_id ON chats(cursor_composer_id)")
@@ -216,6 +299,239 @@ class ChatDatabase:
         
         self.conn.commit()
         logger.info("Database schema initialized at %s", self.db_path)
+
+    # ============================================================
+    # Topic divergence + segmentation methods
+    # ============================================================
+
+    def get_topic_analysis(self, chat_id: int) -> Optional[Dict[str, Any]]:
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT chat_id, computed_at, source_last_updated_at, analysis_version,
+                   overall_score, embedding_drift_score, topic_entropy_score,
+                   topic_transition_score, llm_relevance_score,
+                   num_segments, should_split, suggested_split_points,
+                   topic_summaries, raw_json
+            FROM chat_topic_analysis
+            WHERE chat_id = ?
+            """,
+            (chat_id,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return None
+        return dict(row)
+
+    def get_chat_segments(self, chat_id: int) -> List[Dict[str, Any]]:
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT id, chat_id, start_message_idx, end_message_idx, parent_segment_id,
+                   topic_label, summary, divergence_score, anchor_embedding, created_at
+            FROM chat_segments
+            WHERE chat_id = ?
+            ORDER BY start_message_idx ASC, id ASC
+            """,
+            (chat_id,),
+        )
+        rows = cursor.fetchall()
+        segments: List[Dict[str, Any]] = []
+        for r in rows:
+            seg = dict(r)
+            # Stored as JSON string for portability
+            if seg.get("anchor_embedding"):
+                try:
+                    seg["anchor_embedding"] = json.loads(seg["anchor_embedding"])
+                except Exception:
+                    seg["anchor_embedding"] = None
+            segments.append(seg)
+        return segments
+
+    def get_message_judgements(self, chat_id: int) -> List[Dict[str, Any]]:
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT chat_id, message_idx, relation, relevance_score,
+                   suggested_segment_break, reasoning, created_at
+            FROM chat_message_judgements
+            WHERE chat_id = ?
+            ORDER BY message_idx ASC
+            """,
+            (chat_id,),
+        )
+        return [dict(r) for r in cursor.fetchall()]
+
+    def upsert_topic_analysis(
+        self,
+        chat_id: int,
+        report: Any,
+        segments: List[Any],
+        llm_rows: Optional[List[Dict[str, Any]]] = None,
+        analysis_version: int = 1,
+    ) -> None:
+        """
+        Store divergence report + segments + optional LLM judgements for a chat.
+
+        This method is idempotent: it deletes and recreates segment/judgement rows.
+        """
+        cursor = self.conn.cursor()
+
+        # Determine source_last_updated_at for incremental refresh decisions
+        cursor.execute("SELECT last_updated_at, created_at FROM chats WHERE id = ?", (chat_id,))
+        chat_row = cursor.fetchone()
+        source_last_updated_at = None
+        if chat_row:
+            source_last_updated_at = chat_row[0] or chat_row[1]
+
+        # Delete existing segments/judgements/links (links depend on segments)
+        cursor.execute(
+            "DELETE FROM segment_links WHERE source_segment_id IN (SELECT id FROM chat_segments WHERE chat_id = ?)",
+            (chat_id,),
+        )
+        cursor.execute(
+            "DELETE FROM segment_links WHERE target_segment_id IN (SELECT id FROM chat_segments WHERE chat_id = ?)",
+            (chat_id,),
+        )
+        cursor.execute("DELETE FROM chat_segments WHERE chat_id = ?", (chat_id,))
+        cursor.execute("DELETE FROM chat_message_judgements WHERE chat_id = ?", (chat_id,))
+
+        # Insert analysis row
+        cursor.execute(
+            """
+            INSERT INTO chat_topic_analysis (
+                chat_id, computed_at, source_last_updated_at, analysis_version,
+                overall_score, embedding_drift_score, topic_entropy_score,
+                topic_transition_score, llm_relevance_score,
+                num_segments, should_split, suggested_split_points, topic_summaries,
+                raw_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(chat_id) DO UPDATE SET
+                computed_at=excluded.computed_at,
+                source_last_updated_at=excluded.source_last_updated_at,
+                analysis_version=excluded.analysis_version,
+                overall_score=excluded.overall_score,
+                embedding_drift_score=excluded.embedding_drift_score,
+                topic_entropy_score=excluded.topic_entropy_score,
+                topic_transition_score=excluded.topic_transition_score,
+                llm_relevance_score=excluded.llm_relevance_score,
+                num_segments=excluded.num_segments,
+                should_split=excluded.should_split,
+                suggested_split_points=excluded.suggested_split_points,
+                topic_summaries=excluded.topic_summaries,
+                raw_json=excluded.raw_json
+            """,
+            (
+                chat_id,
+                datetime.now().isoformat(),
+                source_last_updated_at,
+                analysis_version,
+                float(getattr(report, "overall_score", 0.0)),
+                float(getattr(report, "embedding_drift_score", 0.0)),
+                float(getattr(report, "topic_entropy_score", 0.0)),
+                float(getattr(report, "topic_transition_score", 0.0)),
+                getattr(report, "llm_relevance_score", None),
+                int(getattr(report, "num_segments", 0)),
+                1 if getattr(report, "should_split", False) else 0,
+                json.dumps(getattr(report, "suggested_split_points", []) or []),
+                json.dumps(getattr(report, "topic_summaries", []) or []),
+                json.dumps(getattr(report, "raw", {}) or {}, ensure_ascii=False),
+            ),
+        )
+
+        # Insert segments
+        segment_ids: List[int] = []
+        for seg in segments:
+            cursor.execute(
+                """
+                INSERT INTO chat_segments (
+                    chat_id, start_message_idx, end_message_idx,
+                    parent_segment_id, topic_label, summary,
+                    divergence_score, anchor_embedding
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    chat_id,
+                    int(getattr(seg, "start_message_idx")),
+                    int(getattr(seg, "end_message_idx")),
+                    None,  # temporarily null until we map parent indices -> ids
+                    getattr(seg, "topic_label", None),
+                    getattr(seg, "summary", "") or "",
+                    float(getattr(seg, "divergence_score", 0.0)),
+                    json.dumps(getattr(seg, "anchor_embedding", None)),
+                ),
+            )
+            segment_ids.append(cursor.lastrowid)
+
+        # Update parent links (seg.parent_segment_idx refers to segment ordering)
+        for idx, seg in enumerate(segments):
+            parent_idx = getattr(seg, "parent_segment_idx", None)
+            if parent_idx is None:
+                continue
+            if 0 <= int(parent_idx) < len(segment_ids):
+                cursor.execute(
+                    "UPDATE chat_segments SET parent_segment_id = ? WHERE id = ?",
+                    (segment_ids[int(parent_idx)], segment_ids[idx]),
+                )
+
+        # Insert LLM rows if any
+        if llm_rows:
+            cursor.executemany(
+                """
+                INSERT INTO chat_message_judgements
+                    (chat_id, message_idx, relation, relevance_score, suggested_segment_break, reasoning)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        chat_id,
+                        int(r["message_idx"]),
+                        r.get("relation"),
+                        r.get("relevance_score"),
+                        int(r.get("suggested_segment_break", 0)),
+                        r.get("reasoning"),
+                    )
+                    for r in llm_rows
+                ],
+            )
+
+        self.conn.commit()
+
+    def list_chats_needing_topic_analysis(self, incremental: bool = True, limit: int = 100000) -> List[int]:
+        """
+        Return chat IDs that need topic analysis.
+
+        incremental=True:
+          - analyze chats that have no analysis row, OR whose chats.last_updated_at/created_at
+            is newer than analysis.source_last_updated_at
+        incremental=False:
+          - analyze all chats with messages_count > 0
+        """
+        cursor = self.conn.cursor()
+
+        if not incremental:
+            cursor.execute(
+                "SELECT id FROM chats WHERE messages_count > 0 ORDER BY created_at ASC LIMIT ?",
+                (limit,),
+            )
+            return [int(r[0]) for r in cursor.fetchall()]
+
+        cursor.execute(
+            """
+            SELECT c.id
+            FROM chats c
+            LEFT JOIN chat_topic_analysis a ON a.chat_id = c.id
+            WHERE c.messages_count > 0
+              AND (
+                a.chat_id IS NULL
+                OR COALESCE(c.last_updated_at, c.created_at) > COALESCE(a.source_last_updated_at, '')
+              )
+            ORDER BY COALESCE(c.last_updated_at, c.created_at) ASC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+        return [int(r[0]) for r in cursor.fetchall()]
     
     def upsert_workspace(self, workspace: Workspace) -> int:
         """

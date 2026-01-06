@@ -1,4 +1,4 @@
-#!/home/mhood1/git/cursor_chats/.venv/bin/python
+#!/workspace/.venv/bin/python3
 # -*- coding: utf-8 -*-
 import re
 import sys
