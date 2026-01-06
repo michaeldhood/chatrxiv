@@ -195,6 +195,49 @@ class ChatDatabase:
                 stats_errors INTEGER DEFAULT 0
             )
         """)
+
+        # Segments table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS segments (
+                id TEXT PRIMARY KEY,
+                chat_id INTEGER NOT NULL,
+                start_message_idx INTEGER NOT NULL,
+                end_message_idx INTEGER NOT NULL,
+                summary TEXT,
+                topic_label TEXT,
+                parent_segment_id TEXT,
+                divergence_score REAL,
+                anchor_embedding_blob BLOB,
+                FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE,
+                FOREIGN KEY (parent_segment_id) REFERENCES segments(id)
+            )
+        """)
+
+        # Segment Links table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS segment_links (
+                id TEXT PRIMARY KEY,
+                source_segment_id TEXT NOT NULL,
+                target_segment_id TEXT NOT NULL,
+                link_type TEXT,
+                FOREIGN KEY (source_segment_id) REFERENCES segments(id) ON DELETE CASCADE,
+                FOREIGN KEY (target_segment_id) REFERENCES segments(id) ON DELETE CASCADE
+            )
+        """)
+        
+        # Divergence Metrics table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS chat_divergence_metrics (
+                chat_id INTEGER PRIMARY KEY,
+                overall_score REAL,
+                embedding_drift_score REAL,
+                topic_entropy_score REAL,
+                topic_transition_score REAL,
+                llm_relevance_score REAL,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE
+            )
+        """)
         
         # Indexes for performance
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_chats_composer_id ON chats(cursor_composer_id)")
@@ -477,7 +520,7 @@ class ChatDatabase:
         
         # Get messages
         cursor.execute("""
-            SELECT role, text, rich_text, created_at, cursor_bubble_id, message_type
+            SELECT id, role, text, rich_text, created_at, cursor_bubble_id, message_type
             FROM messages
             WHERE chat_id = ?
             ORDER BY created_at ASC
@@ -485,12 +528,13 @@ class ChatDatabase:
         
         for msg_row in cursor.fetchall():
             chat_data["messages"].append({
-                "role": msg_row[0],
-                "text": msg_row[1],
-                "rich_text": msg_row[2],
-                "created_at": msg_row[3],
-                "bubble_id": msg_row[4],
-                "message_type": msg_row[5] if len(msg_row) > 5 else "response",  # Handle migration case
+                "id": msg_row[0],
+                "role": msg_row[1],
+                "text": msg_row[2],
+                "rich_text": msg_row[3],
+                "created_at": msg_row[4],
+                "bubble_id": msg_row[5],
+                "message_type": msg_row[6] if len(msg_row) > 6 else "response",  # Handle migration case
             })
         
         # Get files
@@ -1493,4 +1537,48 @@ class ChatDatabase:
         logger.info("Starting unified FTS index rebuild...")
         self._rebuild_unified_fts()
         logger.info("Unified FTS index rebuild complete")
+
+    def save_analysis_results(self, chat_id: int, segments: List[Any], metrics: Dict[str, Any]):
+        """Save analysis results to database."""
+        cursor = self.conn.cursor()
+        
+        # Save metrics
+        cursor.execute("""
+            INSERT OR REPLACE INTO chat_divergence_metrics 
+            (chat_id, overall_score, embedding_drift_score, topic_entropy_score, 
+             topic_transition_score, llm_relevance_score, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        """, (
+            chat_id,
+            metrics.get('composite_score', 0.0),
+            metrics.get('embedding_metrics', {}).get('mean_drift', 0.0),
+            metrics.get('topic_metrics', {}).get('topic_entropy', 0.0),
+            metrics.get('topic_metrics', {}).get('transition_rate', 0.0),
+            None # LLM score not yet aggregated in composite
+        ))
+        
+        # Clear existing segments for this chat
+        cursor.execute("DELETE FROM segments WHERE chat_id = ?", (chat_id,))
+        
+        # Save segments
+        for seg in segments:
+             emb_blob = seg.anchor_embedding.tobytes() if seg.anchor_embedding is not None else None
+             
+             cursor.execute("""
+                INSERT INTO segments (id, chat_id, start_message_idx, end_message_idx, summary, 
+                                      topic_label, parent_segment_id, divergence_score, anchor_embedding_blob)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+             """, (
+                 seg.id,
+                 chat_id,
+                 seg.start_message_idx,
+                 seg.end_message_idx,
+                 seg.summary,
+                 seg.topic_label,
+                 seg.parent_segment_id,
+                 seg.divergence_score,
+                 emb_blob
+             ))
+        
+        self.conn.commit()
 
