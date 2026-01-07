@@ -11,7 +11,7 @@ from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime
 import os
 
-from src.core.models import Chat, Message, Workspace, ChatMode, MessageRole
+from src.core.models import Chat, Message, Workspace, ChatMode, MessageRole, Canvas, CanvasChatNode
 from src.core.config import get_default_db_path
 
 logger = logging.getLogger(__name__)
@@ -196,6 +196,36 @@ class ChatDatabase:
             )
         """)
         
+        # Canvas table for infinite canvas feature
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS canvases (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL DEFAULT 'Untitled Canvas',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                viewport TEXT DEFAULT '{"x": 0, "y": 0, "zoom": 1.0}'
+            )
+        """)
+        
+        # Canvas chat nodes - links chats to canvases with positions
+        # This is a REFERENCE to the chat, not a copy
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS canvas_chat_nodes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                canvas_id INTEGER NOT NULL,
+                chat_id INTEGER NOT NULL,
+                position_x REAL DEFAULT 0,
+                position_y REAL DEFAULT 0,
+                width REAL DEFAULT 400,
+                height REAL DEFAULT 300,
+                z_index INTEGER DEFAULT 0,
+                collapsed INTEGER DEFAULT 0,
+                FOREIGN KEY (canvas_id) REFERENCES canvases(id) ON DELETE CASCADE,
+                FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE,
+                UNIQUE(canvas_id, chat_id)
+            )
+        """)
+        
         # Indexes for performance
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_chats_composer_id ON chats(cursor_composer_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_chats_workspace ON chats(workspace_id)")
@@ -204,6 +234,10 @@ class ChatDatabase:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_messages_chat ON messages(chat_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_workspaces_hash ON workspaces(workspace_hash)")
+        
+        # Canvas indexes
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_canvas_nodes_canvas ON canvas_chat_nodes(canvas_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_canvas_nodes_chat ON canvas_chat_nodes(chat_id)")
         
         # Check if unified_fts needs to be rebuilt (migration for existing databases)
         cursor.execute("SELECT COUNT(*) FROM unified_fts")
@@ -1668,4 +1702,472 @@ class ChatDatabase:
         logger.info("Starting unified FTS index rebuild...")
         self._rebuild_unified_fts()
         logger.info("Unified FTS index rebuild complete")
+    
+    # =========================================================================
+    # Canvas Methods - Infinite Canvas Feature
+    # =========================================================================
+    
+    def create_canvas(self, name: str = "Untitled Canvas") -> int:
+        """
+        Create a new canvas.
+        
+        Parameters
+        ----
+        name : str
+            Canvas name
+            
+        Returns
+        ----
+        int
+            New canvas ID
+        """
+        cursor = self.conn.cursor()
+        now = datetime.now().isoformat()
+        cursor.execute("""
+            INSERT INTO canvases (name, created_at, updated_at)
+            VALUES (?, ?, ?)
+        """, (name, now, now))
+        self.conn.commit()
+        return cursor.lastrowid
+    
+    def get_canvas(self, canvas_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Get a canvas with all its chat nodes.
+        
+        Parameters
+        ----
+        canvas_id : int
+            Canvas ID
+            
+        Returns
+        ----
+        Dict[str, Any], optional
+            Canvas data with nodes, or None if not found
+        """
+        cursor = self.conn.cursor()
+        
+        cursor.execute("""
+            SELECT id, name, created_at, updated_at, viewport
+            FROM canvases WHERE id = ?
+        """, (canvas_id,))
+        
+        row = cursor.fetchone()
+        if not row:
+            return None
+        
+        canvas_data = {
+            "id": row[0],
+            "name": row[1],
+            "created_at": row[2],
+            "updated_at": row[3],
+            "viewport": json.loads(row[4]) if row[4] else {"x": 0, "y": 0, "zoom": 1.0},
+            "nodes": [],
+        }
+        
+        # Get all chat nodes with their chat data
+        cursor.execute("""
+            SELECT 
+                n.id, n.chat_id, n.position_x, n.position_y, n.width, n.height, n.z_index, n.collapsed,
+                c.title, c.mode, c.created_at, c.source, c.messages_count,
+                w.resolved_path
+            FROM canvas_chat_nodes n
+            INNER JOIN chats c ON n.chat_id = c.id
+            LEFT JOIN workspaces w ON c.workspace_id = w.id
+            WHERE n.canvas_id = ?
+            ORDER BY n.z_index ASC
+        """, (canvas_id,))
+        
+        for node_row in cursor.fetchall():
+            canvas_data["nodes"].append({
+                "node_id": node_row[0],
+                "chat_id": node_row[1],
+                "position_x": node_row[2],
+                "position_y": node_row[3],
+                "width": node_row[4],
+                "height": node_row[5],
+                "z_index": node_row[6],
+                "collapsed": bool(node_row[7]),
+                # Chat info
+                "chat_title": node_row[8] or "Untitled Chat",
+                "chat_mode": node_row[9],
+                "chat_created_at": node_row[10],
+                "chat_source": node_row[11],
+                "chat_messages_count": node_row[12] or 0,
+                "workspace_path": node_row[13],
+            })
+        
+        return canvas_data
+    
+    def list_canvases(self, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+        """
+        List all canvases with node counts.
+        
+        Parameters
+        ----
+        limit : int
+            Maximum number of results
+        offset : int
+            Offset for pagination
+            
+        Returns
+        ----
+        List[Dict[str, Any]]
+            List of canvases
+        """
+        cursor = self.conn.cursor()
+        
+        cursor.execute("""
+            SELECT 
+                c.id, c.name, c.created_at, c.updated_at,
+                COUNT(n.id) as node_count
+            FROM canvases c
+            LEFT JOIN canvas_chat_nodes n ON c.id = n.canvas_id
+            GROUP BY c.id
+            ORDER BY c.updated_at DESC
+            LIMIT ? OFFSET ?
+        """, (limit, offset))
+        
+        results = []
+        for row in cursor.fetchall():
+            results.append({
+                "id": row[0],
+                "name": row[1],
+                "created_at": row[2],
+                "updated_at": row[3],
+                "node_count": row[4],
+            })
+        
+        return results
+    
+    def count_canvases(self) -> int:
+        """Count total canvases."""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM canvases")
+        return cursor.fetchone()[0]
+    
+    def update_canvas(self, canvas_id: int, name: Optional[str] = None, 
+                      viewport: Optional[Dict[str, Any]] = None) -> bool:
+        """
+        Update canvas properties.
+        
+        Parameters
+        ----
+        canvas_id : int
+            Canvas ID
+        name : str, optional
+            New name
+        viewport : Dict, optional
+            New viewport state
+            
+        Returns
+        ----
+        bool
+            True if canvas was updated
+        """
+        cursor = self.conn.cursor()
+        
+        updates = ["updated_at = ?"]
+        params = [datetime.now().isoformat()]
+        
+        if name is not None:
+            updates.append("name = ?")
+            params.append(name)
+        
+        if viewport is not None:
+            updates.append("viewport = ?")
+            params.append(json.dumps(viewport))
+        
+        params.append(canvas_id)
+        cursor.execute(
+            f"UPDATE canvases SET {', '.join(updates)} WHERE id = ?",
+            params
+        )
+        self.conn.commit()
+        return cursor.rowcount > 0
+    
+    def delete_canvas(self, canvas_id: int) -> bool:
+        """
+        Delete a canvas and all its nodes.
+        
+        Parameters
+        ----
+        canvas_id : int
+            Canvas ID
+            
+        Returns
+        ----
+        bool
+            True if canvas was deleted
+        """
+        cursor = self.conn.cursor()
+        # Nodes will be deleted via CASCADE
+        cursor.execute("DELETE FROM canvases WHERE id = ?", (canvas_id,))
+        self.conn.commit()
+        return cursor.rowcount > 0
+    
+    def add_chat_to_canvas(self, canvas_id: int, chat_id: int,
+                           position_x: float = 0, position_y: float = 0,
+                           width: float = 400, height: float = 300) -> Optional[int]:
+        """
+        Add a chat to a canvas.
+        
+        Parameters
+        ----
+        canvas_id : int
+            Canvas ID
+        chat_id : int
+            Chat ID to link
+        position_x : float
+            X position on canvas
+        position_y : float
+            Y position on canvas
+        width : float
+            Card width
+        height : float
+            Card height
+            
+        Returns
+        ----
+        int, optional
+            New node ID, or None if chat already exists on canvas
+        """
+        cursor = self.conn.cursor()
+        
+        # Get max z_index
+        cursor.execute(
+            "SELECT COALESCE(MAX(z_index), 0) FROM canvas_chat_nodes WHERE canvas_id = ?",
+            (canvas_id,)
+        )
+        max_z = cursor.fetchone()[0]
+        
+        try:
+            cursor.execute("""
+                INSERT INTO canvas_chat_nodes 
+                (canvas_id, chat_id, position_x, position_y, width, height, z_index)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (canvas_id, chat_id, position_x, position_y, width, height, max_z + 1))
+            
+            # Update canvas timestamp
+            cursor.execute(
+                "UPDATE canvases SET updated_at = ? WHERE id = ?",
+                (datetime.now().isoformat(), canvas_id)
+            )
+            self.conn.commit()
+            return cursor.lastrowid
+        except sqlite3.IntegrityError:
+            # Chat already on canvas
+            return None
+    
+    def update_canvas_node(self, node_id: int, 
+                           position_x: Optional[float] = None,
+                           position_y: Optional[float] = None,
+                           width: Optional[float] = None,
+                           height: Optional[float] = None,
+                           z_index: Optional[int] = None,
+                           collapsed: Optional[bool] = None) -> bool:
+        """
+        Update a canvas node's position or size.
+        
+        Parameters
+        ----
+        node_id : int
+            Node ID
+        position_x, position_y : float, optional
+            New position
+        width, height : float, optional
+            New size
+        z_index : int, optional
+            New z-index
+        collapsed : bool, optional
+            Collapsed state
+            
+        Returns
+        ----
+        bool
+            True if node was updated
+        """
+        cursor = self.conn.cursor()
+        
+        updates = []
+        params = []
+        
+        if position_x is not None:
+            updates.append("position_x = ?")
+            params.append(position_x)
+        
+        if position_y is not None:
+            updates.append("position_y = ?")
+            params.append(position_y)
+        
+        if width is not None:
+            updates.append("width = ?")
+            params.append(width)
+        
+        if height is not None:
+            updates.append("height = ?")
+            params.append(height)
+        
+        if z_index is not None:
+            updates.append("z_index = ?")
+            params.append(z_index)
+        
+        if collapsed is not None:
+            updates.append("collapsed = ?")
+            params.append(1 if collapsed else 0)
+        
+        if not updates:
+            return False
+        
+        params.append(node_id)
+        cursor.execute(
+            f"UPDATE canvas_chat_nodes SET {', '.join(updates)} WHERE id = ?",
+            params
+        )
+        
+        # Update parent canvas timestamp
+        cursor.execute("""
+            UPDATE canvases SET updated_at = ? 
+            WHERE id = (SELECT canvas_id FROM canvas_chat_nodes WHERE id = ?)
+        """, (datetime.now().isoformat(), node_id))
+        
+        self.conn.commit()
+        return cursor.rowcount > 0
+    
+    def remove_chat_from_canvas(self, node_id: int) -> bool:
+        """
+        Remove a chat from a canvas.
+        
+        Parameters
+        ----
+        node_id : int
+            Node ID to remove
+            
+        Returns
+        ----
+        bool
+            True if node was removed
+        """
+        cursor = self.conn.cursor()
+        
+        # Get canvas_id first for timestamp update
+        cursor.execute("SELECT canvas_id FROM canvas_chat_nodes WHERE id = ?", (node_id,))
+        row = cursor.fetchone()
+        if not row:
+            return False
+        canvas_id = row[0]
+        
+        cursor.execute("DELETE FROM canvas_chat_nodes WHERE id = ?", (node_id,))
+        
+        # Update canvas timestamp
+        cursor.execute(
+            "UPDATE canvases SET updated_at = ? WHERE id = ?",
+            (datetime.now().isoformat(), canvas_id)
+        )
+        
+        self.conn.commit()
+        return cursor.rowcount > 0
+    
+    def bring_node_to_front(self, node_id: int) -> bool:
+        """
+        Bring a canvas node to the front (highest z-index).
+        
+        Parameters
+        ----
+        node_id : int
+            Node ID
+            
+        Returns
+        ----
+        bool
+            True if z-index was updated
+        """
+        cursor = self.conn.cursor()
+        
+        # Get canvas_id
+        cursor.execute("SELECT canvas_id FROM canvas_chat_nodes WHERE id = ?", (node_id,))
+        row = cursor.fetchone()
+        if not row:
+            return False
+        canvas_id = row[0]
+        
+        # Get max z_index
+        cursor.execute(
+            "SELECT MAX(z_index) FROM canvas_chat_nodes WHERE canvas_id = ?",
+            (canvas_id,)
+        )
+        max_z = cursor.fetchone()[0] or 0
+        
+        cursor.execute(
+            "UPDATE canvas_chat_nodes SET z_index = ? WHERE id = ?",
+            (max_z + 1, node_id)
+        )
+        self.conn.commit()
+        return True
+    
+    def get_chat_preview(self, chat_id: int, max_messages: int = 3) -> Dict[str, Any]:
+        """
+        Get a preview of a chat for canvas cards.
+        
+        Parameters
+        ----
+        chat_id : int
+            Chat ID
+        max_messages : int
+            Maximum messages to include in preview
+            
+        Returns
+        ----
+        Dict[str, Any]
+            Chat preview data
+        """
+        cursor = self.conn.cursor()
+        
+        cursor.execute("""
+            SELECT c.id, c.title, c.mode, c.created_at, c.source, c.messages_count,
+                   w.resolved_path
+            FROM chats c
+            LEFT JOIN workspaces w ON c.workspace_id = w.id
+            WHERE c.id = ?
+        """, (chat_id,))
+        
+        row = cursor.fetchone()
+        if not row:
+            return None
+        
+        preview = {
+            "id": row[0],
+            "title": row[1] or "Untitled Chat",
+            "mode": row[2],
+            "created_at": row[3],
+            "source": row[4],
+            "messages_count": row[5] or 0,
+            "workspace_path": row[6],
+            "preview_messages": [],
+            "tags": [],
+        }
+        
+        # Get first few messages for preview
+        cursor.execute("""
+            SELECT role, text, message_type
+            FROM messages
+            WHERE chat_id = ? AND message_type = 'response'
+            ORDER BY created_at ASC
+            LIMIT ?
+        """, (chat_id, max_messages))
+        
+        for msg_row in cursor.fetchall():
+            text = msg_row[1] or ""
+            # Truncate long messages
+            if len(text) > 200:
+                text = text[:200] + "..."
+            preview["preview_messages"].append({
+                "role": msg_row[0],
+                "text": text,
+            })
+        
+        # Get tags
+        cursor.execute("SELECT tag FROM tags WHERE chat_id = ? ORDER BY tag", (chat_id,))
+        preview["tags"] = [row[0] for row in cursor.fetchall()]
+        
+        return preview
 

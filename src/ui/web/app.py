@@ -461,6 +461,208 @@ def api_instant_search():
         db.close()
 
 
+# =============================================================================
+# Canvas Routes - Infinite Canvas Feature
+# =============================================================================
+
+@app.route('/canvases')
+def canvas_list():
+    """List all canvases."""
+    db = get_db()
+    try:
+        canvases = db.list_canvases()
+        total_canvases = db.count_canvases()
+        return render_template('canvas_list.html', 
+                             canvases=canvases,
+                             total_canvases=total_canvases)
+    finally:
+        db.close()
+
+
+@app.route('/canvas/new', methods=['POST'])
+def canvas_create():
+    """Create a new canvas."""
+    db = get_db()
+    try:
+        name = request.form.get('name', 'Untitled Canvas')
+        canvas_id = db.create_canvas(name)
+        return redirect(url_for('canvas_view', canvas_id=canvas_id))
+    finally:
+        db.close()
+
+
+@app.route('/canvas/<int:canvas_id>')
+def canvas_view(canvas_id):
+    """View and edit an infinite canvas."""
+    db = get_db()
+    try:
+        canvas = db.get_canvas(canvas_id)
+        if not canvas:
+            return "Canvas not found", 404
+        
+        # Get list of all chats for the sidebar (to drag onto canvas)
+        search_service = ChatSearchService(db)
+        available_chats = search_service.list_chats(limit=200, offset=0, empty_filter='non_empty')
+        
+        # Mark which chats are already on canvas
+        chats_on_canvas = {node['chat_id'] for node in canvas['nodes']}
+        for chat in available_chats:
+            chat['on_canvas'] = chat['id'] in chats_on_canvas
+        
+        return render_template('canvas_view.html', 
+                             canvas=canvas,
+                             available_chats=available_chats)
+    finally:
+        db.close()
+
+
+@app.route('/api/canvas/<int:canvas_id>')
+def api_canvas_get(canvas_id):
+    """API: Get canvas data."""
+    db = get_db()
+    try:
+        canvas = db.get_canvas(canvas_id)
+        if not canvas:
+            return jsonify({'error': 'Canvas not found'}), 404
+        return jsonify(canvas)
+    finally:
+        db.close()
+
+
+@app.route('/api/canvas/<int:canvas_id>', methods=['PUT'])
+def api_canvas_update(canvas_id):
+    """API: Update canvas properties."""
+    db = get_db()
+    try:
+        data = request.get_json()
+        name = data.get('name')
+        viewport = data.get('viewport')
+        
+        success = db.update_canvas(canvas_id, name=name, viewport=viewport)
+        if not success:
+            return jsonify({'error': 'Canvas not found'}), 404
+        
+        return jsonify({'success': True})
+    finally:
+        db.close()
+
+
+@app.route('/api/canvas/<int:canvas_id>', methods=['DELETE'])
+def api_canvas_delete(canvas_id):
+    """API: Delete a canvas."""
+    db = get_db()
+    try:
+        success = db.delete_canvas(canvas_id)
+        if not success:
+            return jsonify({'error': 'Canvas not found'}), 404
+        return jsonify({'success': True})
+    finally:
+        db.close()
+
+
+@app.route('/api/canvas/<int:canvas_id>/nodes', methods=['POST'])
+def api_canvas_add_chat(canvas_id):
+    """API: Add a chat to a canvas."""
+    db = get_db()
+    try:
+        data = request.get_json()
+        chat_id = data.get('chat_id')
+        position_x = data.get('position_x', 0)
+        position_y = data.get('position_y', 0)
+        width = data.get('width', 400)
+        height = data.get('height', 300)
+        
+        if not chat_id:
+            return jsonify({'error': 'chat_id required'}), 400
+        
+        node_id = db.add_chat_to_canvas(
+            canvas_id, chat_id,
+            position_x=position_x, position_y=position_y,
+            width=width, height=height
+        )
+        
+        if node_id is None:
+            return jsonify({'error': 'Chat already on canvas'}), 409
+        
+        # Return the node with chat preview
+        preview = db.get_chat_preview(chat_id)
+        return jsonify({
+            'node_id': node_id,
+            'chat_id': chat_id,
+            'position_x': position_x,
+            'position_y': position_y,
+            'width': width,
+            'height': height,
+            'chat': preview,
+        })
+    finally:
+        db.close()
+
+
+@app.route('/api/canvas/node/<int:node_id>', methods=['PUT'])
+def api_canvas_update_node(node_id):
+    """API: Update a canvas node position/size."""
+    db = get_db()
+    try:
+        data = request.get_json()
+        
+        success = db.update_canvas_node(
+            node_id,
+            position_x=data.get('position_x'),
+            position_y=data.get('position_y'),
+            width=data.get('width'),
+            height=data.get('height'),
+            z_index=data.get('z_index'),
+            collapsed=data.get('collapsed'),
+        )
+        
+        if not success:
+            return jsonify({'error': 'Node not found'}), 404
+        
+        return jsonify({'success': True})
+    finally:
+        db.close()
+
+
+@app.route('/api/canvas/node/<int:node_id>', methods=['DELETE'])
+def api_canvas_remove_node(node_id):
+    """API: Remove a chat from a canvas."""
+    db = get_db()
+    try:
+        success = db.remove_chat_from_canvas(node_id)
+        if not success:
+            return jsonify({'error': 'Node not found'}), 404
+        return jsonify({'success': True})
+    finally:
+        db.close()
+
+
+@app.route('/api/canvas/node/<int:node_id>/bring-to-front', methods=['POST'])
+def api_canvas_bring_to_front(node_id):
+    """API: Bring a node to the front."""
+    db = get_db()
+    try:
+        success = db.bring_node_to_front(node_id)
+        if not success:
+            return jsonify({'error': 'Node not found'}), 404
+        return jsonify({'success': True})
+    finally:
+        db.close()
+
+
+@app.route('/api/chat/<int:chat_id>/preview')
+def api_chat_preview(chat_id):
+    """API: Get a chat preview for canvas cards."""
+    db = get_db()
+    try:
+        preview = db.get_chat_preview(chat_id)
+        if not preview:
+            return jsonify({'error': 'Chat not found'}), 404
+        return jsonify(preview)
+    finally:
+        db.close()
+
+
 @app.route('/stream')
 def stream():
     """
