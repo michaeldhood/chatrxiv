@@ -4,8 +4,10 @@ Module for listing and viewing Cursor chat files.
 import os
 import re
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 import logging
+
+from src.summarizer import generate_chat_summary, format_summary_plain
 
 logger = logging.getLogger(__name__)
 
@@ -116,22 +118,97 @@ def view_chat_file(filepath: str) -> Optional[str]:
         return None
 
 
-def display_chat_file(filepath: str) -> bool:
+def parse_markdown_chat(content: str) -> Tuple[str, List[Dict[str, str]], bool]:
     """
-    Display the contents of a chat file to the console.
+    Parse a markdown chat file to extract title, messages, and check for existing summary.
+    
+    Args:
+        content: The markdown file content
+        
+    Returns:
+        Tuple of (title, messages, has_summary) where messages is a list of
+        dicts with 'type' and 'content' keys
+    """
+    lines = content.split('\n')
+    title = ''
+    messages = []
+    has_summary = False
+    current_message = None
+    current_content = []
+    in_summary_block = False
+    
+    for line in lines:
+        # Check for title (# heading)
+        if line.startswith('# ') and not title:
+            title = line[2:].strip()
+            continue
+        
+        # Check for summary block (starts with "> **Chat Summary**")
+        if line.startswith('> **Chat Summary**'):
+            has_summary = True
+            in_summary_block = True
+            continue
+        
+        # End of summary block (empty line after blockquote lines)
+        if in_summary_block and not line.startswith('>') and line.strip():
+            in_summary_block = False
+        
+        if in_summary_block:
+            continue
+        
+        # Check for message headers (## role)
+        if line.startswith('## '):
+            # Save previous message if exists
+            if current_message:
+                current_message['content'] = '\n'.join(current_content).strip()
+                messages.append(current_message)
+            
+            role = line[3:].strip()
+            current_message = {'type': role, 'content': ''}
+            current_content = []
+            continue
+        
+        # Accumulate content for current message
+        if current_message is not None:
+            current_content.append(line)
+    
+    # Don't forget the last message
+    if current_message:
+        current_message['content'] = '\n'.join(current_content).strip()
+        messages.append(current_message)
+    
+    return title, messages, has_summary
+
+
+def display_chat_file(filepath: str, show_summary: bool = True) -> bool:
+    """
+    Display the contents of a chat file to the console with summary.
     
     Args:
         filepath: Path to the chat file
+        show_summary: Whether to generate and display a summary at the top
         
     Returns:
         True if the file was successfully displayed, False otherwise
     """
     content = view_chat_file(filepath)
-    if content:
-        logger.info("\n%s\n%s\n%s\n", '=' * 80, filepath, '=' * 80)
-        logger.info(content)
-        return True
-    return False
+    if not content:
+        return False
+    
+    logger.info("\n%s\n%s\n%s\n", '=' * 80, filepath, '=' * 80)
+    
+    if show_summary:
+        # Parse the markdown to extract messages
+        title, messages, has_existing_summary = parse_markdown_chat(content)
+        
+        # Generate and display summary
+        summary = generate_chat_summary(messages, title)
+        summary_text = format_summary_plain(summary)
+        logger.info(summary_text)
+    
+    # Display the full content
+    logger.info(content)
+    return True
 
 
 def find_chat_file(filename: str, directories: List[str] = None) -> Optional[str]:
