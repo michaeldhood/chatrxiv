@@ -93,6 +93,10 @@ from .commands.watch import watch, update_modes
 cli.add_command(watch)
 cli.add_command(update_modes)
 
+# Divergence commands
+from .commands.divergence import divergence
+cli.add_command(divergence)
+
 
 def main():
     """
