@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 class Message(BaseModel):
     """Individual message in a chat."""
-    id: int
+    id: Optional[int] = None  # Message ID from database (may not always be present)
     role: str
     text: Optional[str] = None
     rich_text: Optional[str] = None
@@ -51,6 +51,7 @@ class ChatDetail(BaseModel):
     tags: List[str] = Field(default_factory=list)
     files: List[str] = Field(default_factory=list)
     messages: List[Message] = Field(default_factory=list)
+    processed_messages: List[Dict[str, Any]] = Field(default_factory=list)
     
     class Config:
         from_attributes = True

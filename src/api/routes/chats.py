@@ -74,6 +74,45 @@ def get_chat(chat_id: int):
         if not chat:
             raise HTTPException(status_code=404, detail="Chat not found")
         
+        # Process messages - group tool calls together
+        # Frontend expects this for collapsible tool call groups
+        processed_messages = []
+        tool_call_group = []
+        
+        for msg in chat.get('messages', []):
+            msg_type = msg.get('message_type', 'response')
+            
+            # Skip empty messages
+            if msg_type == 'empty':
+                continue
+                
+            # Group consecutive tool calls
+            if msg_type == 'tool_call':
+                tool_call_group.append(msg)
+            else:
+                # If we have accumulated tool calls, add them as a group
+                if tool_call_group:
+                    processed_messages.append({
+                        'type': 'tool_call_group',
+                        'tool_calls': tool_call_group.copy()
+                    })
+                    tool_call_group = []
+                
+                # Add the current message
+                processed_messages.append({
+                    'type': 'message',
+                    'data': msg
+                })
+        
+        # Don't forget remaining tool calls
+        if tool_call_group:
+            processed_messages.append({
+                'type': 'tool_call_group',
+                'tool_calls': tool_call_group
+            })
+        
+        chat['processed_messages'] = processed_messages
+        
         return ChatDetail(**chat)
     finally:
         db.close()
