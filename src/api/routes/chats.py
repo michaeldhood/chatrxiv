@@ -8,7 +8,7 @@ from fastapi import APIRouter, Query, HTTPException
 from src.core.db import ChatDatabase
 from src.core.config import get_default_db_path
 from src.services.search import ChatSearchService
-from src.api.schemas import ChatSummary, ChatsResponse, ChatDetail
+from src.api.schemas import ChatSummary, ChatsResponse, ChatDetail, FilterOptionsResponse, FilterOption
 
 router = APIRouter()
 
@@ -114,5 +114,24 @@ def get_chat(chat_id: int):
         chat['processed_messages'] = processed_messages
         
         return ChatDetail(**chat)
+    finally:
+        db.close()
+
+
+@router.get("/filter-options", response_model=FilterOptionsResponse)
+def get_filter_options():
+    """
+    Get all available filter options (sources, modes) with counts.
+    
+    Used to populate filter dropdowns in the UI. Returns all distinct
+    values regardless of current pagination.
+    """
+    db = get_db()
+    try:
+        options = db.get_filter_options()
+        return FilterOptionsResponse(
+            sources=[FilterOption(**s) for s in options["sources"]],
+            modes=[FilterOption(**m) for m in options["modes"]]
+        )
     finally:
         db.close()

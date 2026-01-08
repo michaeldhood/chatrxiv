@@ -119,3 +119,15 @@ class SearchFacetsResponse(BaseModel):
     active_filters: List[str] = Field(default_factory=list)
     active_workspace_filters: List[int] = Field(default_factory=list)
     sort_by: str = "relevance"
+
+
+class FilterOption(BaseModel):
+    """A filter option with its count."""
+    value: str
+    count: int
+
+
+class FilterOptionsResponse(BaseModel):
+    """Response for /api/filter-options endpoint."""
+    sources: List[FilterOption] = Field(default_factory=list)
+    modes: List[FilterOption] = Field(default_factory=list)

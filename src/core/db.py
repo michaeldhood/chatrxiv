@@ -784,6 +784,43 @@ class ChatDatabase:
 
         return results
 
+    def get_filter_options(self) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Get all available filter options for the UI.
+
+        Returns distinct values for sources and modes with their counts.
+        Used to populate filter dropdowns regardless of current pagination.
+
+        Returns
+        ----
+        Dict[str, List[Dict[str, Any]]]
+            Dictionary with 'sources' and 'modes' keys, each containing
+            a list of {value, count} objects sorted by count descending.
+        """
+        cursor = self.conn.cursor()
+
+        # Get distinct sources with counts
+        cursor.execute("""
+            SELECT source, COUNT(*) as count
+            FROM chats
+            WHERE source IS NOT NULL AND source != ''
+            GROUP BY source
+            ORDER BY count DESC
+        """)
+        sources = [{"value": row[0], "count": row[1]} for row in cursor.fetchall()]
+
+        # Get distinct modes with counts
+        cursor.execute("""
+            SELECT mode, COUNT(*) as count
+            FROM chats
+            WHERE mode IS NOT NULL AND mode != ''
+            GROUP BY mode
+            ORDER BY count DESC
+        """)
+        modes = [{"value": row[0], "count": row[1]} for row in cursor.fetchall()]
+
+        return {"sources": sources, "modes": modes}
+
     def close(self):
         """Close database connection."""
         if self.conn:

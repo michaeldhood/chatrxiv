@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { fetchChats, type ChatSummary } from '@/lib/api';
+import { fetchChats, fetchFilterOptions, type ChatSummary, type FilterOption } from '@/lib/api';
 import { useSSE } from '@/lib/hooks/use-sse';
 
 type SortField = 'title' | 'mode' | 'source' | 'messages' | 'created_at';
@@ -21,6 +21,8 @@ export default function DatabasePage() {
   const [sortBy, setSortBy] = useState<SortField>((searchParams.get('sort') as SortField) || 'created_at');
   const [sortOrder, setSortOrder] = useState<SortOrder>((searchParams.get('order') as SortOrder) || 'desc');
   const [loading, setLoading] = useState(true);
+  const [availableSources, setAvailableSources] = useState<FilterOption[]>([]);
+  const [availableModes, setAvailableModes] = useState<FilterOption[]>([]);
   
   // SSE hook for live updates
   const refreshChats = () => {
@@ -84,6 +86,20 @@ export default function DatabasePage() {
     }
   };
   
+  // Fetch filter options on mount (sources and modes with counts)
+  useEffect(() => {
+    const loadFilterOptions = async () => {
+      try {
+        const options = await fetchFilterOptions();
+        setAvailableSources(options.sources);
+        setAvailableModes(options.modes);
+      } catch (error) {
+        console.error('Failed to load filter options:', error);
+      }
+    };
+    loadFilterOptions();
+  }, []);
+  
   useEffect(() => {
     loadChats();
   }, [page, filter, modeFilter, sourceFilter, sortBy, sortOrder]);
@@ -136,9 +152,8 @@ export default function DatabasePage() {
     }`;
   };
   
-  // Get unique values for filters
-  const uniqueModes = Array.from(new Set(chats.map(c => c.mode).filter(Boolean)));
-  const uniqueSources = Array.from(new Set(chats.map(c => c.source).filter(Boolean)));
+  // Note: Filter options now come from availableSources/availableModes (fetched from API)
+  // instead of being computed from current page's chats
   
   return (
     <div>
@@ -169,8 +184,10 @@ export default function DatabasePage() {
             className="px-2.5 py-1.5 border border-border rounded-md bg-muted text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring min-w-[120px]"
           >
             <option value="">All</option>
-            {uniqueModes.map(mode => (
-              <option key={mode} value={mode}>{mode}</option>
+            {availableModes.map(mode => (
+              <option key={mode.value} value={mode.value}>
+                {mode.value} ({mode.count})
+              </option>
             ))}
           </select>
         </div>
@@ -185,8 +202,10 @@ export default function DatabasePage() {
             className="px-2.5 py-1.5 border border-border rounded-md bg-muted text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring min-w-[120px]"
           >
             <option value="">All</option>
-            {uniqueSources.map(source => (
-              <option key={source} value={source}>{source}</option>
+            {availableSources.map(source => (
+              <option key={source.value} value={source.value}>
+                {source.value} ({source.count})
+              </option>
             ))}
           </select>
         </div>

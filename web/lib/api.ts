@@ -78,6 +78,27 @@ export interface SearchFacetsResponse {
   sort_by: string;
 }
 
+export interface FilterOption {
+  value: string;
+  count: number;
+}
+
+export interface FilterOptionsResponse {
+  sources: FilterOption[];
+  modes: FilterOption[];
+}
+
+/**
+ * Fetch available filter options (sources, modes) with counts.
+ */
+export async function fetchFilterOptions(): Promise<FilterOptionsResponse> {
+  const res = await fetch(`${API_BASE}/api/filter-options`);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch filter options: ${res.statusText}`);
+  }
+  return res.json();
+}
+
 /**
  * Fetch paginated list of chats.
  */
