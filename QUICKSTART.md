@@ -58,13 +58,30 @@ python -m src export --chat-id 123 --output-dir exports
 
 ### 5. Web UI
 
-Start the web interface:
+Start the web interface (requires Node.js):
 
 ```bash
-python -m src web
+# Install Node.js dependencies (first time only)
+cd web && npm install && cd ..
+
+# Start both API and frontend servers
+npm run dev
+
+# Or start separately:
+# Terminal 1: Backend API
+python -m src web --reload
+
+# Terminal 2: Frontend (in web/ directory)
+cd web && npm run dev
 ```
 
-Then open http://127.0.0.1:5000 in your browser.
+Then open http://localhost:3000 in your browser (dev mode) or http://localhost:5000 (production).
+
+The web UI features:
+- **Instant search** with ⌘K shortcut
+- **Live updates** via Server-Sent Events
+- **List and database views** for browsing chats
+- **Full-text search** with tag/workspace filters
 
 ## Database Location
 

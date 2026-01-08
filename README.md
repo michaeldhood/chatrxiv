@@ -170,17 +170,51 @@ python -m src update-modes
 
 ### Web Interface
 
-Start a web UI server to browse chats in your browser:
+Start the web UI to browse chats in your browser. The interface uses FastAPI for the backend and Next.js for the frontend.
 
+**Prerequisites:**
+- Python 3.8+ with dependencies installed
+- Node.js 18+ and npm
+
+**Setup:**
 ```bash
-# Start web server (default: http://127.0.0.1:5000)
-python -m src web
+# Install Python dependencies
+pip install -r requirements.txt
 
-# Custom host and port
-python -m src web --host 0.0.0.0 --port 8080
+# Install Node.js dependencies
+cd web && npm install && cd ..
 ```
 
-The web interface includes Server-Sent Events (SSE) for live updates when new chats are ingested.
+**Development (with hot reload):**
+```bash
+# Run both API and frontend servers concurrently
+npm run dev
+
+# Or run separately:
+# Terminal 1: FastAPI backend
+python -m src web --reload
+
+# Terminal 2: Next.js frontend
+cd web && npm run dev
+```
+
+**Production:**
+```bash
+# Start FastAPI backend (default: http://127.0.0.1:5000)
+python -m src web
+
+# Build and start Next.js frontend
+cd web && npm run build && npm start
+```
+
+The web interface includes:
+- **Live updates**: Server-Sent Events (SSE) for real-time updates when new chats are ingested
+- **Instant search**: Typeahead search with keyboard navigation (⌘K)
+- **Multiple views**: List view and database/spreadsheet view
+- **Full-text search**: Search across all chat content with tag and workspace facets
+- **Dark theme**: VS Code-inspired dark theme
+
+Access the frontend at http://localhost:3000 (dev) or http://localhost:5000 (production).
 
 ## File Naming Convention
 
@@ -191,13 +225,21 @@ The exported files follow these naming conventions:
 
 ## Installation
 
-No special installation required. Just make sure you have Python installed with the following libraries:
-- pandas
-- sqlite3 (usually built-in with Python)
+**Requirements:**
+- Python 3.8+
+- Node.js 18+ and npm (for web UI)
 
+**Install Python dependencies:**
 ```bash
-pip install pandas
+pip install -r requirements.txt
 ```
+
+**Install Node.js dependencies (for web UI):**
+```bash
+cd web && npm install && cd ..
+```
+
+The web UI is optional - CLI commands work without Node.js.
 
 ## Development
 
