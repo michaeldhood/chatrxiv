@@ -78,6 +78,8 @@ export default function DatabasePage() {
       });
       
       setChats(filtered);
+      // Note: total is for all chats, but we're filtering client-side
+      // Ideally this should be server-side filtered, but for now use filtered length
       setTotalChats(filtered.length);
     } catch (error) {
       console.error('Failed to load chats:', error);

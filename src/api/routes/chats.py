@@ -45,9 +45,11 @@ def get_chats(
         empty_filter = filter  # 'empty', 'non_empty', or None
         
         chats = search_service.list_chats(limit=limit, offset=offset, empty_filter=empty_filter)
+        total = search_service.count_chats(empty_filter=empty_filter)
         
         return ChatsResponse(
             chats=[ChatSummary(**chat) for chat in chats],
+            total=total,
             page=page,
             limit=limit,
             filter=empty_filter

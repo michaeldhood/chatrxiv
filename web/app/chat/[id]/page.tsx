@@ -317,9 +317,9 @@ export default function ChatDetailPage() {
                                   {formatDistanceToNow(new Date(toolMsg.created_at), { addSuffix: true })}
                                 </span>
                               )}
-                              {toolMsg.cursor_bubble_id && (
+                              {toolMsg.bubble_id && (
                                 <div className="mt-1.5 font-mono text-[11px] text-muted-foreground">
-                                  Bubble ID: {toolMsg.cursor_bubble_id}
+                                  Bubble ID: {toolMsg.bubble_id}
                                 </div>
                               )}
                             </div>

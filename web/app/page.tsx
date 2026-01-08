@@ -26,7 +26,7 @@ export default function HomePage() {
     try {
       const data = await fetchChats(page, 50, filter || undefined);
       setChats(data.chats);
-      setTotalChats(data.chats.length); // Note: API doesn't return total, using length for now
+      setTotalChats(data.total);
     } catch (error) {
       console.error('Failed to load chats:', error);
     } finally {

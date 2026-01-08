@@ -8,12 +8,11 @@ from pydantic import BaseModel, Field
 
 class Message(BaseModel):
     """Individual message in a chat."""
-    id: Optional[int] = None  # Message ID from database (may not always be present)
     role: str
     text: Optional[str] = None
     rich_text: Optional[str] = None
     created_at: Optional[str] = None
-    cursor_bubble_id: Optional[str] = None
+    bubble_id: Optional[str] = None
     message_type: str = Field(default="response")
     
     class Config:
@@ -78,6 +77,7 @@ class SearchResult(BaseModel):
 class ChatsResponse(BaseModel):
     """Response for /api/chats endpoint."""
     chats: List[ChatSummary]
+    total: int
     page: int
     limit: int
     filter: Optional[str] = None

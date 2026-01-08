@@ -19,12 +19,11 @@ export interface ChatSummary {
 }
 
 export interface Message {
-  id: number;
   role: string;
   text?: string | null;
   rich_text?: string | null;
   created_at?: string | null;
-  cursor_bubble_id?: string | null;
+  bubble_id?: string | null;
   message_type: string;
 }
 
@@ -39,6 +38,7 @@ export interface SearchResult extends ChatSummary {
 
 export interface ChatsResponse {
   chats: ChatSummary[];
+  total: number;
   page: number;
   limit: number;
   filter?: string | null;
