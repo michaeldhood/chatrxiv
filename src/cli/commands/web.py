@@ -1,7 +1,7 @@
 """
 Web UI server command.
 
-Starts Flask server with gevent for SSE (Server-Sent Events) support.
+Starts FastAPI server with uvicorn for async SSE support.
 """
 import os
 
@@ -25,37 +25,41 @@ import click
     type=click.Path(),
     help='Path to database file (default: OS-specific location)'
 )
-def web(host, port, db_path):
+@click.option(
+    '--reload',
+    is_flag=True,
+    help='Auto-reload on code changes'
+)
+def web(host, port, db_path, reload):
     """
-    Start web UI server with SSE support.
+    Start FastAPI web server with SSE support.
     
-    The server uses gevent for async support, enabling Server-Sent Events
+    The server uses uvicorn for async support, enabling Server-Sent Events
     for live frontend updates when new chats are ingested.
     """
     if db_path:
         os.environ['CHATRXIV_DB_PATH'] = str(db_path)
     
-    # Import gevent WSGIServer for async support (required for SSE)
-    # Note: monkey.patch_all() is already called in __main__.py before imports
     try:
-        from gevent.pywsgi import WSGIServer
+        import uvicorn
     except ImportError:
         click.secho(
-            "gevent is required for SSE support. Install with: pip install gevent",
-            fg='yellow',
+            "uvicorn is required. Install with: pip install uvicorn[standard]",
+            fg='red',
             err=True
         )
-        click.echo("Falling back to standard Flask server (SSE may not work properly)", err=True)
-        from src.ui.web.app import app
-        app.run(host=host, port=port, debug=True)
         return
     
-    from src.ui.web.app import app
-    
-    click.echo(f"Starting web UI server on http://{host}:{port}")
+    click.echo(f"Starting FastAPI server on http://{host}:{port}")
+    if reload:
+        click.echo("Auto-reload enabled - server will restart on code changes")
     click.echo("SSE enabled - frontend will auto-update when new chats are ingested")
     click.echo("Press Ctrl+C to stop")
     
-    server = WSGIServer((host, port), app)
-    server.serve_forever()
+    uvicorn.run(
+        "src.api.main:app",
+        host=host,
+        port=port,
+        reload=reload
+    )
 

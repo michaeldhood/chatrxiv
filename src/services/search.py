@@ -59,7 +59,8 @@ class ChatSearchService:
         """
         return self.db.instant_search(query, limit, sort_by)
     
-    def search(self, query: str, limit: int = 50, offset: int = 0, sort_by: str = 'relevance') -> List[Dict[str, Any]]:
+    def search(self, query: str, limit: int = 50, offset: int = 0, sort_by: str = 'relevance',
+                project_id: Optional[int] = None) -> List[Dict[str, Any]]:
         """
         Search chats by text content.
         
@@ -73,12 +74,20 @@ class ChatSearchService:
             Offset for pagination
         sort_by : str
             Sort order: 'relevance' (BM25) or 'date' (newest first)
+        project_id : int, optional
+            Filter results to chats in workspaces belonging to this project
             
         Returns
         ----
         List[Dict[str, Any]]
             List of matching chats
         """
+        # Use the filtered search if project_id is specified
+        if project_id:
+            results, _ = self.db.search_with_snippets_filtered(
+                query, project_id=project_id, limit=limit, offset=offset, sort_by=sort_by
+            )
+            return results
         # Use the new unified search with snippets
         results, _ = self.db.search_with_snippets(query, limit, offset, sort_by)
         return results

@@ -54,6 +54,16 @@ class ChatDatabase:
         
         cursor = self.conn.cursor()
         
+        # Projects table (for grouping workspaces)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS projects (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL,
+                description TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
         # Workspaces table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS workspaces (
@@ -63,7 +73,8 @@ class ChatDatabase:
                 resolved_path TEXT,
                 first_seen_at TEXT,
                 last_seen_at TEXT,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                project_id INTEGER REFERENCES projects(id)
             )
         """)
         
@@ -89,6 +100,13 @@ class ChatDatabase:
         if 'messages_count' not in columns:
             cursor.execute("ALTER TABLE chats ADD COLUMN messages_count INTEGER DEFAULT 0")
             logger.info("Added messages_count column to chats table")
+        
+        # Migration: Add project_id column to workspaces if it doesn't exist
+        cursor.execute("PRAGMA table_info(workspaces)")
+        workspace_columns = [row[1] for row in cursor.fetchall()]
+        if 'project_id' not in workspace_columns:
+            cursor.execute("ALTER TABLE workspaces ADD COLUMN project_id INTEGER REFERENCES projects(id)")
+            logger.info("Added project_id column to workspaces table")
         
         # Messages table
         cursor.execute("""
@@ -204,6 +222,7 @@ class ChatDatabase:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_messages_chat ON messages(chat_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_workspaces_hash ON workspaces(workspace_hash)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_workspaces_project ON workspaces(project_id)")
         
         # Check if unified_fts needs to be rebuilt (migration for existing databases)
         cursor.execute("SELECT COUNT(*) FROM unified_fts")
@@ -503,9 +522,10 @@ class ChatDatabase:
         
         return chat_data
     
-    def count_chats(self, workspace_id: Optional[int] = None, empty_filter: Optional[str] = None) -> int:
+    def count_chats(self, workspace_id: Optional[int] = None, empty_filter: Optional[str] = None,
+                    project_id: Optional[int] = None) -> int:
         """
-        Count total chats, optionally filtered by workspace and empty status.
+        Count total chats, optionally filtered by workspace, project, and empty status.
         
         Parameters
         ----
@@ -513,6 +533,8 @@ class ChatDatabase:
             Filter by workspace
         empty_filter : str, optional
             Filter by empty status: 'empty' (messages_count = 0), 'non_empty' (messages_count > 0), or None (all)
+        project_id : int, optional
+            Filter by project (matches chats in any workspace belonging to this project)
             
         Returns
         ----
@@ -523,17 +545,23 @@ class ChatDatabase:
         
         conditions = []
         params = []
+        joins = ""
         
         if workspace_id:
-            conditions.append("workspace_id = ?")
+            conditions.append("c.workspace_id = ?")
             params.append(workspace_id)
         
-        if empty_filter == 'empty':
-            conditions.append("messages_count = 0")
-        elif empty_filter == 'non_empty':
-            conditions.append("messages_count > 0")
+        if project_id:
+            joins = "INNER JOIN workspaces w ON c.workspace_id = w.id"
+            conditions.append("w.project_id = ?")
+            params.append(project_id)
         
-        query = "SELECT COUNT(*) FROM chats"
+        if empty_filter == 'empty':
+            conditions.append("c.messages_count = 0")
+        elif empty_filter == 'non_empty':
+            conditions.append("c.messages_count > 0")
+        
+        query = f"SELECT COUNT(*) FROM chats c {joins}"
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
         
@@ -566,7 +594,7 @@ class ChatDatabase:
         return cursor.fetchone()[0]
     
     def list_chats(self, workspace_id: Optional[int] = None, limit: int = 100, offset: int = 0, 
-                   empty_filter: Optional[str] = None) -> List[Dict[str, Any]]:
+                   empty_filter: Optional[str] = None, project_id: Optional[int] = None) -> List[Dict[str, Any]]:
         """
         List chats with optional filtering.
         
@@ -580,6 +608,8 @@ class ChatDatabase:
             Offset for pagination
         empty_filter : str, optional
             Filter by empty status: 'empty' (messages_count = 0), 'non_empty' (messages_count > 0), or None (all)
+        project_id : int, optional
+            Filter by project (matches chats in any workspace belonging to this project)
             
         Returns
         ----
@@ -595,6 +625,10 @@ class ChatDatabase:
             conditions.append("c.workspace_id = ?")
             params.append(workspace_id)
         
+        if project_id:
+            conditions.append("w.project_id = ?")
+            params.append(project_id)
+        
         if empty_filter == 'empty':
             conditions.append("c.messages_count = 0")
         elif empty_filter == 'non_empty':
@@ -604,11 +638,14 @@ class ChatDatabase:
         if conditions:
             where_clause = "WHERE " + " AND ".join(conditions)
         
+        # Use INNER JOIN when filtering by project to exclude unassigned workspaces
+        join_type = "INNER JOIN" if project_id else "LEFT JOIN"
+        
         query = f"""
             SELECT c.id, c.cursor_composer_id, c.title, c.mode, c.created_at, c.source, c.messages_count,
                    w.workspace_hash, w.resolved_path
             FROM chats c
-            LEFT JOIN workspaces w ON c.workspace_id = w.id
+            {join_type} workspaces w ON c.workspace_id = w.id
             {where_clause}
             ORDER BY c.created_at DESC
             LIMIT ? OFFSET ?
@@ -671,6 +708,293 @@ class ChatDatabase:
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit."""
         self.close()
+    
+    # ========================================================================
+    # Project Management Methods
+    # ========================================================================
+    
+    def create_project(self, name: str, description: Optional[str] = None) -> int:
+        """
+        Create a new project.
+        
+        Parameters
+        ----
+        name : str
+            Unique project name
+        description : str, optional
+            Project description
+            
+        Returns
+        ----
+        int
+            The new project's ID
+            
+        Raises
+        ----
+        sqlite3.IntegrityError
+            If project name already exists
+        """
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            INSERT INTO projects (name, description)
+            VALUES (?, ?)
+        """, (name, description))
+        self.conn.commit()
+        return cursor.lastrowid
+    
+    def get_project(self, project_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Get a project by ID.
+        
+        Parameters
+        ----
+        project_id : int
+            Project ID
+            
+        Returns
+        ----
+        Dict[str, Any], optional
+            Project data or None if not found
+        """
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT id, name, description, created_at
+            FROM projects
+            WHERE id = ?
+        """, (project_id,))
+        row = cursor.fetchone()
+        if not row:
+            return None
+        return {
+            "id": row[0],
+            "name": row[1],
+            "description": row[2],
+            "created_at": row[3]
+        }
+    
+    def get_project_by_name(self, name: str) -> Optional[Dict[str, Any]]:
+        """
+        Get a project by name.
+        
+        Parameters
+        ----
+        name : str
+            Project name
+            
+        Returns
+        ----
+        Dict[str, Any], optional
+            Project data or None if not found
+        """
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT id, name, description, created_at
+            FROM projects
+            WHERE name = ?
+        """, (name,))
+        row = cursor.fetchone()
+        if not row:
+            return None
+        return {
+            "id": row[0],
+            "name": row[1],
+            "description": row[2],
+            "created_at": row[3]
+        }
+    
+    def list_projects(self) -> List[Dict[str, Any]]:
+        """
+        List all projects with workspace counts.
+        
+        Returns
+        ----
+        List[Dict[str, Any]]
+            List of projects with workspace counts
+        """
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT p.id, p.name, p.description, p.created_at,
+                   COUNT(w.id) as workspace_count
+            FROM projects p
+            LEFT JOIN workspaces w ON w.project_id = p.id
+            GROUP BY p.id
+            ORDER BY p.name
+        """)
+        return [
+            {
+                "id": row[0],
+                "name": row[1],
+                "description": row[2],
+                "created_at": row[3],
+                "workspace_count": row[4]
+            }
+            for row in cursor.fetchall()
+        ]
+    
+    def delete_project(self, project_id: int) -> bool:
+        """
+        Delete a project. Workspaces are unlinked but not deleted.
+        
+        Parameters
+        ----
+        project_id : int
+            Project ID to delete
+            
+        Returns
+        ----
+        bool
+            True if project was deleted, False if not found
+        """
+        cursor = self.conn.cursor()
+        # Unlink workspaces first
+        cursor.execute("""
+            UPDATE workspaces SET project_id = NULL WHERE project_id = ?
+        """, (project_id,))
+        # Delete project
+        cursor.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+        self.conn.commit()
+        return cursor.rowcount > 0
+    
+    def assign_workspace_to_project(self, workspace_id: int, project_id: int) -> None:
+        """
+        Assign a workspace to a project.
+        
+        Parameters
+        ----
+        workspace_id : int
+            Workspace ID
+        project_id : int
+            Project ID to assign to
+        """
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            UPDATE workspaces SET project_id = ? WHERE id = ?
+        """, (project_id, workspace_id))
+        self.conn.commit()
+    
+    def assign_workspace_to_project_by_hash(self, workspace_hash: str, project_id: int) -> bool:
+        """
+        Assign a workspace to a project by workspace hash.
+        
+        Parameters
+        ----
+        workspace_hash : str
+            Workspace hash
+        project_id : int
+            Project ID to assign to
+            
+        Returns
+        ----
+        bool
+            True if workspace was found and updated
+        """
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            UPDATE workspaces SET project_id = ? WHERE workspace_hash = ?
+        """, (project_id, workspace_hash))
+        self.conn.commit()
+        return cursor.rowcount > 0
+    
+    def get_workspaces_by_project(self, project_id: int) -> List[Dict[str, Any]]:
+        """
+        Get all workspaces in a project.
+        
+        Parameters
+        ----
+        project_id : int
+            Project ID
+            
+        Returns
+        ----
+        List[Dict[str, Any]]
+            List of workspace records
+        """
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT id, workspace_hash, folder_uri, resolved_path, 
+                   first_seen_at, last_seen_at, project_id
+            FROM workspaces
+            WHERE project_id = ?
+            ORDER BY resolved_path
+        """, (project_id,))
+        return [
+            {
+                "id": row[0],
+                "workspace_hash": row[1],
+                "folder_uri": row[2],
+                "resolved_path": row[3],
+                "first_seen_at": row[4],
+                "last_seen_at": row[5],
+                "project_id": row[6]
+            }
+            for row in cursor.fetchall()
+        ]
+    
+    def get_workspace_by_hash(self, workspace_hash: str) -> Optional[Dict[str, Any]]:
+        """
+        Get a workspace by its hash.
+        
+        Parameters
+        ----
+        workspace_hash : str
+            Workspace hash
+            
+        Returns
+        ----
+        Dict[str, Any], optional
+            Workspace data or None if not found
+        """
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT id, workspace_hash, folder_uri, resolved_path, 
+                   first_seen_at, last_seen_at, project_id
+            FROM workspaces
+            WHERE workspace_hash = ?
+        """, (workspace_hash,))
+        row = cursor.fetchone()
+        if not row:
+            return None
+        return {
+            "id": row[0],
+            "workspace_hash": row[1],
+            "folder_uri": row[2],
+            "resolved_path": row[3],
+            "first_seen_at": row[4],
+            "last_seen_at": row[5],
+            "project_id": row[6]
+        }
+    
+    def list_workspaces(self) -> List[Dict[str, Any]]:
+        """
+        List all workspaces with their project associations.
+        
+        Returns
+        ----
+        List[Dict[str, Any]]
+            List of workspace records with project info
+        """
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT w.id, w.workspace_hash, w.folder_uri, w.resolved_path, 
+                   w.first_seen_at, w.last_seen_at, w.project_id,
+                   p.name as project_name
+            FROM workspaces w
+            LEFT JOIN projects p ON w.project_id = p.id
+            ORDER BY w.resolved_path
+        """)
+        return [
+            {
+                "id": row[0],
+                "workspace_hash": row[1],
+                "folder_uri": row[2],
+                "resolved_path": row[3],
+                "first_seen_at": row[4],
+                "last_seen_at": row[5],
+                "project_id": row[6],
+                "project_name": row[7]
+            }
+            for row in cursor.fetchall()
+        ]
     
     def get_ingestion_state(self, source: str = "cursor") -> Optional[Dict[str, Any]]:
         """
@@ -1493,12 +1817,13 @@ class ChatDatabase:
         query: str, 
         tag_filters: Optional[List[str]] = None,
         workspace_filters: Optional[List[int]] = None,
+        project_id: Optional[int] = None,
         limit: int = 50, 
         offset: int = 0,
         sort_by: str = 'relevance'
     ) -> Tuple[List[Dict[str, Any]], int]:
         """
-        Full search with snippets, pagination, tag filtering, and workspace filtering.
+        Full search with snippets, pagination, tag filtering, workspace filtering, and project filtering.
         
         Parameters
         ----
@@ -1508,6 +1833,8 @@ class ChatDatabase:
             Only return chats that have ALL of these tags
         workspace_filters : List[int], optional
             Only return chats from these workspace IDs
+        project_id : int, optional
+            Only return chats from workspaces in this project
         limit : int
             Maximum results per page
         offset : int
@@ -1520,7 +1847,7 @@ class ChatDatabase:
         Tuple[List[Dict], int]
             (results with snippets, total count)
         """
-        if not tag_filters and not workspace_filters:
+        if not tag_filters and not workspace_filters and not project_id:
             # No filters, use existing method
             return self.search_with_snippets(query, limit, offset, sort_by)
         
@@ -1557,6 +1884,11 @@ class ChatDatabase:
                 workspace_placeholders = ','.join(['?'] * len(workspace_filters))
                 conditions.append(f"c.workspace_id IN ({workspace_placeholders})")
                 params.extend(workspace_filters)
+            
+            # Build project filter
+            if project_id:
+                conditions.append("w.project_id = ?")
+                params.append(project_id)
             
             where_clause = " AND ".join(conditions)
             

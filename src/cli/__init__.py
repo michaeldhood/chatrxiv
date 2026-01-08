@@ -80,6 +80,10 @@ cli.add_command(cleanup)
 from .commands.tag import tag
 cli.add_command(tag)
 
+# Project commands
+from .commands.project import project
+cli.add_command(project)
+
 # Phase 7a: Journal commands
 from .commands.journal import journal
 cli.add_command(journal)
