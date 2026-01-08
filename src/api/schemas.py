@@ -1,0 +1,120 @@
+"""
+Pydantic schemas for API request/response models.
+"""
+from typing import List, Optional, Dict, Any
+from datetime import datetime
+from pydantic import BaseModel, Field
+
+
+class Message(BaseModel):
+    """Individual message in a chat."""
+    id: int
+    role: str
+    text: Optional[str] = None
+    rich_text: Optional[str] = None
+    created_at: Optional[str] = None
+    cursor_bubble_id: Optional[str] = None
+    message_type: str = Field(default="response")
+    
+    class Config:
+        from_attributes = True
+
+
+class ChatSummary(BaseModel):
+    """Chat summary for list views."""
+    id: int
+    composer_id: Optional[str] = None
+    title: Optional[str] = None
+    mode: Optional[str] = None
+    created_at: Optional[str] = None
+    source: Optional[str] = None
+    messages_count: int = 0
+    workspace_hash: Optional[str] = None
+    workspace_path: Optional[str] = None
+    tags: List[str] = Field(default_factory=list)
+    
+    class Config:
+        from_attributes = True
+
+
+class ChatDetail(BaseModel):
+    """Full chat with all messages."""
+    id: int
+    composer_id: Optional[str] = None
+    title: Optional[str] = None
+    mode: Optional[str] = None
+    created_at: Optional[str] = None
+    source: Optional[str] = None
+    messages_count: int = 0
+    workspace_hash: Optional[str] = None
+    workspace_path: Optional[str] = None
+    tags: List[str] = Field(default_factory=list)
+    files: List[str] = Field(default_factory=list)
+    messages: List[Message] = Field(default_factory=list)
+    
+    class Config:
+        from_attributes = True
+
+
+class SearchResult(BaseModel):
+    """Search result with highlighted snippet."""
+    id: int
+    composer_id: Optional[str] = None
+    title: Optional[str] = None
+    mode: Optional[str] = None
+    created_at: Optional[str] = None
+    source: Optional[str] = None
+    messages_count: int = 0
+    workspace_hash: Optional[str] = None
+    workspace_path: Optional[str] = None
+    tags: List[str] = Field(default_factory=list)
+    snippet: Optional[str] = None
+    
+    class Config:
+        from_attributes = True
+
+
+class ChatsResponse(BaseModel):
+    """Response for /api/chats endpoint."""
+    chats: List[ChatSummary]
+    page: int
+    limit: int
+    filter: Optional[str] = None
+
+
+class SearchResponse(BaseModel):
+    """Response for /api/search endpoint."""
+    query: str
+    results: List[SearchResult]
+    total: int
+    page: int
+    limit: int
+
+
+class InstantSearchResponse(BaseModel):
+    """Response for /api/instant-search endpoint."""
+    query: str
+    results: List[SearchResult]
+    count: int
+
+
+class WorkspaceFacet(BaseModel):
+    """Workspace facet information."""
+    count: int
+    resolved_path: Optional[str] = None
+    workspace_hash: Optional[str] = None
+    display_name: Optional[str] = None
+
+
+class SearchFacetsResponse(BaseModel):
+    """Response for search with facets."""
+    query: str
+    results: List[SearchResult]
+    total: int
+    page: int
+    limit: int
+    tag_facets: Dict[str, int] = Field(default_factory=dict)
+    workspace_facets: Dict[int, WorkspaceFacet] = Field(default_factory=dict)
+    active_filters: List[str] = Field(default_factory=list)
+    active_workspace_filters: List[int] = Field(default_factory=list)
+    sort_by: str = "relevance"
