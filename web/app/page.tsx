@@ -115,6 +115,7 @@ export default function HomePage() {
         <select
           value={filter || ''}
           onChange={(e) => handleFilterChange(e.target.value || null)}
+          aria-label="Filter chats"
           className="px-3 py-2 border border-border rounded-md bg-muted text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring transition-colors"
         >
           <option value="">All Chats</option>
