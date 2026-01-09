@@ -2,6 +2,7 @@
 Web UI server command.
 
 Starts FastAPI server with uvicorn for async SSE support.
+Integrates file watching for automatic ingestion of new chats.
 """
 import os
 
@@ -30,15 +31,29 @@ import click
     is_flag=True,
     help='Auto-reload on code changes'
 )
-def web(host, port, db_path, reload):
+@click.option(
+    '--no-watch',
+    is_flag=True,
+    help='Disable automatic file watching (watching enabled by default)'
+)
+def web(host, port, db_path, reload, no_watch):
     """
-    Start FastAPI web server with SSE support.
+    Start web server with automatic chat ingestion.
     
-    The server uses uvicorn for async support, enabling Server-Sent Events
-    for live frontend updates when new chats are ingested.
+    This single command:
+    - Serves the API for the web frontend
+    - Watches Cursor database files for changes
+    - Auto-ingests new chats when detected
+    - Pushes live updates to the frontend via SSE
+    
+    Use --no-watch to disable automatic ingestion if you want
+    to run the watcher separately or just browse existing chats.
     """
     if db_path:
         os.environ['CHATRXIV_DB_PATH'] = str(db_path)
+    
+    # Enable or disable file watching
+    os.environ['CHATRXIV_WATCH'] = 'false' if no_watch else 'true'
     
     try:
         import uvicorn
@@ -50,11 +65,15 @@ def web(host, port, db_path, reload):
         )
         return
     
-    click.echo(f"Starting FastAPI server on http://{host}:{port}")
+    click.echo(f"Starting chatrxiv server on http://{host}:{port}")
     if reload:
-        click.echo("Auto-reload enabled - server will restart on code changes")
-    click.echo("SSE enabled - frontend will auto-update when new chats are ingested")
-    click.echo("Press Ctrl+C to stop")
+        click.echo("  Auto-reload: enabled (server restarts on code changes)")
+    if not no_watch:
+        click.echo("  File watching: enabled (new chats auto-ingested)")
+        click.echo("  SSE updates: enabled (frontend auto-refreshes)")
+    else:
+        click.echo("  File watching: disabled")
+    click.echo("\nPress Ctrl+C to stop\n")
     
     uvicorn.run(
         "src.api.main:app",
@@ -62,4 +81,3 @@ def web(host, port, db_path, reload):
         port=port,
         reload=reload
     )
-
