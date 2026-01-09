@@ -28,7 +28,8 @@ export function Message({ message }: MessageProps) {
     }
   };
   
-  const content = message.rich_text || message.text || '';
+  // Use text field - rich_text contains raw Lexical JSON which isn't displayable
+  const content = message.text || '';
   
   return (
     <div
