@@ -170,17 +170,48 @@ python -m src update-modes
 
 ### Web Interface
 
-Start a web UI server to browse chats in your browser:
+Start the web UI to browse chats. **One command does everything:**
 
 ```bash
-# Start web server (default: http://127.0.0.1:5000)
 python -m src web
+```
 
-# Custom host and port
+This single command:
+- Serves the web UI at http://localhost:5000
+- Watches Cursor's database files for new chats
+- Auto-ingests new chats when detected  
+- Pushes live updates to the browser via SSE
+
+**Options:**
+```bash
+# With auto-reload for development
+python -m src web --reload
+
+# Disable file watching (just serve existing chats)
+python -m src web --no-watch
+
+# Custom host/port
 python -m src web --host 0.0.0.0 --port 8080
 ```
 
-The web interface includes Server-Sent Events (SSE) for live updates when new chats are ingested.
+**For Next.js frontend development** (optional, requires Node.js 18+):
+
+```bash
+# Install Node.js dependencies (first time only)
+cd web && npm install && cd ..
+
+# Run API + Next.js frontend concurrently
+npm run dev
+# Then open http://localhost:3000 (Next.js hot reload)
+```
+
+The web interface includes:
+- **Auto-ingest**: New Cursor chats appear automatically (no separate `watch` command needed)
+- **Live updates**: SSE pushes changes to your browser in real-time
+- **Instant search**: Typeahead search with keyboard navigation (⌘K)
+- **Multiple views**: List view and database/spreadsheet view
+- **Full-text search**: Search across all chat content with tag and workspace facets
+- **Dark theme**: VS Code-inspired dark theme
 
 ## File Naming Convention
 
@@ -191,13 +222,21 @@ The exported files follow these naming conventions:
 
 ## Installation
 
-No special installation required. Just make sure you have Python installed with the following libraries:
-- pandas
-- sqlite3 (usually built-in with Python)
+**Requirements:**
+- Python 3.8+
+- Node.js 18+ and npm (for web UI)
 
+**Install Python dependencies:**
 ```bash
-pip install pandas
+pip install -r requirements.txt
 ```
+
+**Install Node.js dependencies (for web UI):**
+```bash
+cd web && npm install && cd ..
+```
+
+The web UI is optional - CLI commands work without Node.js.
 
 ## Development
 

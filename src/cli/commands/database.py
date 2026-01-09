@@ -170,10 +170,19 @@ def import_chatgpt(ctx, path, db_path):
     default=20,
     help='Maximum number of results'
 )
+@click.option(
+    '--project', '-p',
+    help='Filter to chats within a project (by name)'
+)
 @db_option
 @click.pass_context
-def search(ctx, query, limit, db_path):
-    """Search chats in local database."""
+def search(ctx, query, limit, project, db_path):
+    """Search chats in local database.
+    
+    Examples:
+        chatrxiv search "authentication"
+        chatrxiv search "API design" --project chatrxiv
+    """
     # Get database from context
     if db_path:
         ctx.obj.db_path = Path(db_path)
@@ -181,14 +190,29 @@ def search(ctx, query, limit, db_path):
     db = ctx.obj.get_db()
 
     try:
+        # Resolve project name to ID if provided
+        project_id = None
+        if project:
+            proj = db.get_project_by_name(project)
+            if not proj:
+                click.secho(f"Error: Project '{project}' not found", fg='red', err=True)
+                raise click.Abort()
+            project_id = proj['id']
+        
         search_service = ChatSearchService(db)
-        results = search_service.search(query, limit)
+        results = search_service.search(query, limit, project_id=project_id)
 
         if not results:
-            click.echo(f"No chats found matching '{query}'")
+            msg = f"No chats found matching '{query}'"
+            if project:
+                msg += f" in project '{project}'"
+            click.echo(msg)
             raise click.Abort()
 
-        click.secho(f"\nFound {len(results)} chats matching '{query}':\n", fg='green')
+        result_msg = f"\nFound {len(results)} chats matching '{query}'"
+        if project:
+            result_msg += f" in project '{project}'"
+        click.secho(result_msg + ":\n", fg='green')
 
         for chat in results:
             click.echo(f"Chat ID: {chat['id']}")
