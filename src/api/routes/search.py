@@ -44,23 +44,20 @@ def search(
     db : ChatDatabase
         Database instance (injected via dependency)
     """
-    try:
-        search_service = ChatSearchService(db)
+    search_service = ChatSearchService(db)
 
-        offset = (page - 1) * limit
-        results, total = search_service.search_with_total(
-            q, limit=limit, offset=offset, sort_by=sort
-        )
+    offset = (page - 1) * limit
+    results, total = search_service.search_with_total(
+        q, limit=limit, offset=offset, sort_by=sort
+    )
 
-        return SearchResponse(
-            query=q,
-            results=[SearchResult(**result) for result in results],
-            total=total,
-            page=page,
-            limit=limit,
-        )
-    finally:
-        db.close()
+    return SearchResponse(
+        query=q,
+        results=[SearchResult(**result) for result in results],
+        total=total,
+        page=page,
+        limit=limit,
+    )
 
 
 @router.get("/instant-search", response_model=InstantSearchResponse)
@@ -89,17 +86,14 @@ def instant_search(
     if not query or len(query) < 2:
         return InstantSearchResponse(query=query, results=[], count=0)
 
-    try:
-        search_service = ChatSearchService(db)
-        results = search_service.instant_search(query, limit=limit)
+    search_service = ChatSearchService(db)
+    results = search_service.instant_search(query, limit=limit)
 
-        return InstantSearchResponse(
-            query=query,
-            results=[SearchResult(**result) for result in results],
-            count=len(results),
-        )
-    finally:
-        db.close()
+    return InstantSearchResponse(
+        query=query,
+        results=[SearchResult(**result) for result in results],
+        count=len(results),
+    )
 
 
 @router.get("/search/facets", response_model=SearchFacetsResponse)
@@ -134,39 +128,36 @@ def search_with_facets(
     db : ChatDatabase
         Database instance (injected via dependency)
     """
-    try:
-        search_service = ChatSearchService(db)
+    search_service = ChatSearchService(db)
 
-        offset = (page - 1) * limit
+    offset = (page - 1) * limit
 
-        # Get results with facets
-        results, total, tag_facets, workspace_facets_dict = (
-            search_service.search_with_facets(
-                q,
-                tag_filters=tags if tags else None,
-                workspace_filters=workspaces if workspaces else None,
-                limit=limit,
-                offset=offset,
-                sort_by=sort,
-            )
-        )
-
-        # Convert workspace facets dict to WorkspaceFacet models
-        workspace_facets = {}
-        for ws_id, ws_info in workspace_facets_dict.items():
-            workspace_facets[ws_id] = WorkspaceFacet(**ws_info)
-
-        return SearchFacetsResponse(
-            query=q,
-            results=[SearchResult(**result) for result in results],
-            total=total,
-            page=page,
+    # Get results with facets
+    results, total, tag_facets, workspace_facets_dict = (
+        search_service.search_with_facets(
+            q,
+            tag_filters=tags if tags else None,
+            workspace_filters=workspaces if workspaces else None,
             limit=limit,
-            tag_facets=tag_facets,
-            workspace_facets=workspace_facets,
-            active_filters=tags if tags else [],
-            active_workspace_filters=workspaces if workspaces else [],
+            offset=offset,
             sort_by=sort,
         )
-    finally:
-        db.close()
+    )
+
+    # Convert workspace facets dict to WorkspaceFacet models
+    workspace_facets = {}
+    for ws_id, ws_info in workspace_facets_dict.items():
+        workspace_facets[ws_id] = WorkspaceFacet(**ws_info)
+
+    return SearchFacetsResponse(
+        query=q,
+        results=[SearchResult(**result) for result in results],
+        total=total,
+        page=page,
+        limit=limit,
+        tag_facets=tag_facets,
+        workspace_facets=workspace_facets,
+        active_filters=tags if tags else [],
+        active_workspace_filters=workspaces if workspaces else [],
+        sort_by=sort,
+    )

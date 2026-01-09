@@ -41,26 +41,23 @@ def get_chats(
     db : ChatDatabase
         Database instance (injected via dependency)
     """
-    try:
-        search_service = ChatSearchService(db)
+    search_service = ChatSearchService(db)
 
-        offset = (page - 1) * limit
-        empty_filter = filter  # 'empty', 'non_empty', or None
+    offset = (page - 1) * limit
+    empty_filter = filter  # 'empty', 'non_empty', or None
 
-        chats = search_service.list_chats(
-            limit=limit, offset=offset, empty_filter=empty_filter
-        )
-        total = search_service.count_chats(empty_filter=empty_filter)
+    chats = search_service.list_chats(
+        limit=limit, offset=offset, empty_filter=empty_filter
+    )
+    total = search_service.count_chats(empty_filter=empty_filter)
 
-        return ChatsResponse(
-            chats=[ChatSummary(**chat) for chat in chats],
-            total=total,
-            page=page,
-            limit=limit,
-            filter=empty_filter,
-        )
-    finally:
-        db.close()
+    return ChatsResponse(
+        chats=[ChatSummary(**chat) for chat in chats],
+        total=total,
+        page=page,
+        limit=limit,
+        filter=empty_filter,
+    )
 
 
 @router.get("/chats/{chat_id}", response_model=ChatDetail)
@@ -75,53 +72,50 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
     db : ChatDatabase
         Database instance (injected via dependency)
     """
-    try:
-        search_service = ChatSearchService(db)
-        chat = search_service.get_chat(chat_id)
+    search_service = ChatSearchService(db)
+    chat = search_service.get_chat(chat_id)
 
-        if not chat:
-            raise HTTPException(status_code=404, detail="Chat not found")
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
 
-        # Process messages - group tool calls together
-        # Frontend expects this for collapsible tool call groups
-        processed_messages = []
-        tool_call_group = []
+    # Process messages - group tool calls together
+    # Frontend expects this for collapsible tool call groups
+    processed_messages = []
+    tool_call_group = []
 
-        for msg in chat.get("messages", []):
-            msg_type = msg.get("message_type", "response")
+    for msg in chat.get("messages", []):
+        msg_type = msg.get("message_type", "response")
 
-            # Skip empty messages
-            if msg_type == "empty":
-                continue
+        # Skip empty messages
+        if msg_type == "empty":
+            continue
 
-            # Group consecutive tool calls
-            if msg_type == "tool_call":
-                tool_call_group.append(msg)
-            else:
-                # If we have accumulated tool calls, add them as a group
-                if tool_call_group:
-                    processed_messages.append(
-                        {
-                            "type": "tool_call_group",
-                            "tool_calls": tool_call_group.copy(),
-                        }
-                    )
-                    tool_call_group = []
+        # Group consecutive tool calls
+        if msg_type == "tool_call":
+            tool_call_group.append(msg)
+        else:
+            # If we have accumulated tool calls, add them as a group
+            if tool_call_group:
+                processed_messages.append(
+                    {
+                        "type": "tool_call_group",
+                        "tool_calls": tool_call_group.copy(),
+                    }
+                )
+                tool_call_group = []
 
-                # Add the current message
-                processed_messages.append({"type": "message", "data": msg})
+            # Add the current message
+            processed_messages.append({"type": "message", "data": msg})
 
-        # Don't forget remaining tool calls
-        if tool_call_group:
-            processed_messages.append(
-                {"type": "tool_call_group", "tool_calls": tool_call_group}
-            )
+    # Don't forget remaining tool calls
+    if tool_call_group:
+        processed_messages.append(
+            {"type": "tool_call_group", "tool_calls": tool_call_group}
+        )
 
-        chat["processed_messages"] = processed_messages
+    chat["processed_messages"] = processed_messages
 
-        return ChatDetail(**chat)
-    finally:
-        db.close()
+    return ChatDetail(**chat)
 
 
 @router.get("/filter-options", response_model=FilterOptionsResponse)
@@ -137,11 +131,8 @@ def get_filter_options(db: ChatDatabase = Depends(get_db)):
     db : ChatDatabase
         Database instance (injected via dependency)
     """
-    try:
-        options = db.get_filter_options()
-        return FilterOptionsResponse(
-            sources=[FilterOption(**s) for s in options["sources"]],
-            modes=[FilterOption(**m) for m in options["modes"]],
-        )
-    finally:
-        db.close()
+    options = db.get_filter_options()
+    return FilterOptionsResponse(
+        sources=[FilterOption(**s) for s in options["sources"]],
+        modes=[FilterOption(**m) for m in options["modes"]],
+    )
