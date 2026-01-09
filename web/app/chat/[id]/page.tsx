@@ -109,14 +109,13 @@ export default function ChatDetailPage() {
   const copyChatToClipboard = async () => {
     if (!chat) return;
     
-    const messagesWithText = chat.messages.filter(
-      msg => msg.text || msg.rich_text
-    );
+    // Use text field - rich_text contains raw Lexical JSON
+    const messagesWithText = chat.messages.filter(msg => msg.text);
     
     let chatText = '';
     for (const msg of messagesWithText) {
       const roleLabel = msg.role === 'user' ? 'User' : 'Assistant';
-      const content = msg.rich_text || msg.text || '';
+      const content = msg.text || '';
       chatText += `**${roleLabel}**\n\n${content}\n\n---\n\n`;
     }
     
@@ -134,15 +133,14 @@ export default function ChatDetailPage() {
   const copyChatAsJson = async () => {
     if (!chat) return;
     
-    const messagesWithText = chat.messages.filter(
-      msg => msg.text || msg.rich_text
-    );
+    // Use text field - rich_text contains raw Lexical JSON
+    const messagesWithText = chat.messages.filter(msg => msg.text);
     
     const jsonData = {
       title: chat.title,
       messages: messagesWithText.map(msg => ({
         role: msg.role,
-        text: msg.rich_text || msg.text || '',
+        text: msg.text || '',
       })),
     };
     
@@ -157,7 +155,7 @@ export default function ChatDetailPage() {
   
   const getTagClass = (tag: string) => {
     const dimension = tag.split('/')[0];
-    return `text-xs px-3 py-1.5 rounded-2xl font-medium ${
+    return `text-xs px-3 py-[6px] rounded-2xl font-medium ${
       dimension === 'tech' ? 'bg-accent-blue/15 text-accent-blue' :
       dimension === 'activity' ? 'bg-accent-green/15 text-accent-green' :
       dimension === 'topic' ? 'bg-accent-purple/15 text-accent-purple' :
@@ -194,7 +192,7 @@ export default function ChatDetailPage() {
           </h2>
           <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground mb-4">
             {chat.mode && (
-              <span className="text-xs px-2.5 py-1 rounded-full uppercase font-semibold bg-primary/20 text-primary">
+              <span className="text-xs px-[10px] py-1 rounded-full uppercase font-semibold bg-primary/20 text-primary">
                 {chat.mode}
               </span>
             )}
@@ -375,8 +373,9 @@ export default function ChatDetailPage() {
               </div>
               {userMessages.map((msgIndex, idx) => {
                 const msg = processedMessages[msgIndex];
-                const preview = msg.type === 'message' && msg.data
-                  ? (msg.data.rich_text || msg.data.text || '').substring(0, 60) + '...'
+                // Use text field - rich_text contains raw Lexical JSON
+              const preview = msg.type === 'message' && msg.data
+                  ? (msg.data.text || '').substring(0, 60) + '...'
                   : 'No preview';
                 
                 return (
