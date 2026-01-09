@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { searchWithFacets, type SearchResult, type SearchFacetsResponse } from '@/lib/api';
@@ -22,16 +22,7 @@ export default function SearchPage() {
     searchParams.get('workspaces')?.split(',').map(Number).filter(Boolean) || []
   );
   
-  useEffect(() => {
-    if (!query) {
-      router.push('/');
-      return;
-    }
-    
-    loadSearch();
-  }, [query, page, sortBy, selectedTags, selectedWorkspaces]);
-  
-  const loadSearch = async () => {
+  const loadSearch = useCallback(async () => {
     setLoading(true);
     try {
       const result = await searchWithFacets(
@@ -48,7 +39,16 @@ export default function SearchPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [query, page, sortBy, selectedTags, selectedWorkspaces]);
+  
+  useEffect(() => {
+    if (!query) {
+      router.push('/');
+      return;
+    }
+    
+    loadSearch();
+  }, [query, loadSearch, router]);
   
   const toggleTag = (tag: string) => {
     const newTags = selectedTags.includes(tag)
@@ -56,7 +56,7 @@ export default function SearchPage() {
       : [...selectedTags, tag];
     setSelectedTags(newTags);
     setPage(1);
-    updateURL(newTags, selectedWorkspaces);
+    updateURL(newTags, selectedWorkspaces, 1);
   };
   
   const toggleWorkspace = (wsId: number) => {
@@ -65,18 +65,18 @@ export default function SearchPage() {
       : [...selectedWorkspaces, wsId];
     setSelectedWorkspaces(newWorkspaces);
     setPage(1);
-    updateURL(selectedTags, newWorkspaces);
+    updateURL(selectedTags, newWorkspaces, 1);
   };
   
-  const updateURL = (tags: string[], workspaces: number[]) => {
+  const updateURL = useCallback((tags: string[], workspaces: number[], currentPage: number) => {
     const params = new URLSearchParams();
     params.set('q', query);
     if (sortBy !== 'relevance') params.set('sort', sortBy);
     if (tags.length > 0) params.set('tags', tags.join(','));
     if (workspaces.length > 0) params.set('workspaces', workspaces.join(','));
-    if (page > 1) params.set('page', String(page));
+    if (currentPage > 1) params.set('page', String(currentPage));
     router.push(`/search?${params.toString()}`);
-  };
+  }, [query, sortBy, router]);
   
   const getTagDimension = (tag: string) => {
     return tag.split('/')[0];
@@ -226,7 +226,7 @@ export default function SearchPage() {
           <div className="flex gap-2">
             <button
               onClick={() => setSortBy('relevance')}
-              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              className={`px-3 py-[6px] rounded-md text-sm font-medium transition-colors ${
                 sortBy === 'relevance'
                   ? 'bg-primary text-primary-foreground'
                   : 'bg-muted text-muted-foreground hover:text-foreground'
@@ -236,7 +236,7 @@ export default function SearchPage() {
             </button>
             <button
               onClick={() => setSortBy('date')}
-              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              className={`px-3 py-[6px] rounded-md text-sm font-medium transition-colors ${
                 sortBy === 'date'
                   ? 'bg-primary text-primary-foreground'
                   : 'bg-muted text-muted-foreground hover:text-foreground'
@@ -277,9 +277,10 @@ export default function SearchPage() {
                   </h3>
                   
                   {result.snippet && (
-                    <div className="text-sm text-muted-foreground mb-2 line-clamp-2">
-                      {result.snippet}
-                    </div>
+                    <div 
+                      className="text-sm text-muted-foreground mb-2 line-clamp-2"
+                      dangerouslySetInnerHTML={{ __html: result.snippet }}
+                    />
                   )}
                   
                   <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
@@ -305,8 +306,9 @@ export default function SearchPage() {
                 {page > 1 && (
                   <button
                     onClick={() => {
-                      setPage(page - 1);
-                      updateURL(selectedTags, selectedWorkspaces);
+                      const newPage = page - 1;
+                      setPage(newPage);
+                      updateURL(selectedTags, selectedWorkspaces, newPage);
                     }}
                     className="px-4 py-2 bg-card border border-border rounded-lg text-sm text-foreground hover:bg-muted hover:border-primary transition-colors"
                   >
@@ -319,8 +321,9 @@ export default function SearchPage() {
                 {data.results.length === 50 && (
                   <button
                     onClick={() => {
-                      setPage(page + 1);
-                      updateURL(selectedTags, selectedWorkspaces);
+                      const newPage = page + 1;
+                      setPage(newPage);
+                      updateURL(selectedTags, selectedWorkspaces, newPage);
                     }}
                     className="px-4 py-2 bg-card border border-border rounded-lg text-sm text-foreground hover:bg-muted hover:border-primary transition-colors"
                   >

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { fetchChats, type ChatSummary } from '@/lib/api';
@@ -15,13 +15,7 @@ export default function HomePage() {
   const [filter, setFilter] = useState<string | null>(searchParams.get('filter') || null);
   const [loading, setLoading] = useState(true);
   
-  // SSE hook for live updates
-  const refreshChats = () => {
-    loadChats();
-  };
-  useSSE(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/stream`, refreshChats);
-  
-  const loadChats = async () => {
+  const loadChats = useCallback(async () => {
     setLoading(true);
     try {
       const data = await fetchChats(page, 50, filter || undefined);
@@ -32,11 +26,14 @@ export default function HomePage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, filter]);
+  
+  // SSE hook for live updates
+  useSSE(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/stream`, loadChats);
   
   useEffect(() => {
     loadChats();
-  }, [page, filter]);
+  }, [loadChats]);
   
   useEffect(() => {
     const newFilter = searchParams.get('filter');
@@ -62,7 +59,7 @@ export default function HomePage() {
   
   const getModeBadgeClass = (mode?: string | null) => {
     const modeClass = mode || 'chat';
-    return `text-[11px] px-2.5 py-1 rounded-full uppercase font-semibold tracking-wide ${
+    return `text-[11px] px-[10px] py-1 rounded-full uppercase font-semibold tracking-wide ${
       modeClass === 'chat' ? 'bg-accent-blue/20 text-accent-blue' :
       modeClass === 'edit' ? 'bg-accent-orange/20 text-accent-orange' :
       modeClass === 'agent' || modeClass === 'composer' ? 'bg-accent-purple/20 text-accent-purple' :
@@ -73,7 +70,7 @@ export default function HomePage() {
   
   const getSourceBadgeClass = (source?: string | null) => {
     const src = source || 'cursor';
-    return `text-xs px-2.5 py-1 rounded-full font-medium ${
+    return `text-xs px-[10px] py-1 rounded-full font-medium ${
       src === 'claude.ai' ? 'bg-accent-purple/15 text-accent-purple' :
       src === 'chatgpt' ? 'bg-accent-green/15 text-accent-green' :
       'bg-accent-blue/15 text-accent-blue'
@@ -99,7 +96,7 @@ export default function HomePage() {
         <div className="flex gap-1 bg-muted p-1 rounded-lg border border-border">
           <Link
             href="/"
-            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+            className={`px-3 py-[6px] rounded-md text-xs font-medium transition-all ${
               !filter
                 ? 'bg-primary text-primary-foreground'
                 : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
@@ -109,7 +106,7 @@ export default function HomePage() {
           </Link>
           <Link
             href="/database"
-            className="px-3 py-1.5 rounded-md text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all"
+            className="px-3 py-[6px] rounded-md text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all"
           >
             Database
           </Link>
@@ -176,7 +173,7 @@ export default function HomePage() {
                     {chat.source || 'cursor'}
                   </span>
                   <span
-                    className={`font-medium px-2.5 py-1 rounded-full text-xs ${
+                    className={`font-medium px-[10px] py-1 rounded-full text-xs ${
                       chat.messages_count === 0
                         ? 'bg-accent-orange/15 text-accent-orange'
                         : 'bg-accent-green/15 text-accent-green'

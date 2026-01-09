@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import Link from "next/link";
 import "./globals.css";
+import "highlight.js/styles/github-dark.css";
 import { SearchBar } from "@/components/search-bar";
 
 const inter = Inter({

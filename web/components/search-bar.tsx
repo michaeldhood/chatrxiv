@@ -150,7 +150,7 @@ export function SearchBar({ className = '' }: SearchBarProps) {
   
   const getModeBadgeClass = (mode?: string | null) => {
     const modeClass = mode || 'chat';
-    return `text-[10px] px-1.5 py-0.5 rounded uppercase font-semibold ${
+    return `text-[10px] px-[6px] py-[2px] rounded uppercase font-semibold ${
       modeClass === 'chat' ? 'bg-accent-blue/20 text-accent-blue' :
       modeClass === 'edit' ? 'bg-accent-orange/20 text-accent-orange' :
       modeClass === 'agent' || modeClass === 'composer' ? 'bg-accent-purple/20 text-accent-purple' :
@@ -171,7 +171,7 @@ export function SearchBar({ className = '' }: SearchBarProps) {
             if (results.length > 0) setIsOpen(true);
           }}
           placeholder="Search chats... (⌘K)"
-          className="w-full md:w-[400px] px-3.5 py-2.5 border border-border rounded-lg bg-muted text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring transition-colors"
+          className="w-full md:w-[400px] px-[14px] py-[10px] border border-border rounded-lg bg-muted text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring transition-colors"
         />
         {isSearching && (
           <div className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
@@ -236,14 +236,14 @@ export function SearchBar({ className = '' }: SearchBarProps) {
               ))}
               <div className="px-4 py-2 border-t border-border text-[11px] text-muted-foreground flex justify-between items-center">
                 <span>
-                  <kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px]">↑</kbd>
-                  <kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] ml-1">↓</kbd> navigate
+                  <kbd className="px-[6px] py-[2px] bg-muted rounded text-[10px]">↑</kbd>
+                  <kbd className="px-[6px] py-[2px] bg-muted rounded text-[10px] ml-1">↓</kbd> navigate
                 </span>
                 <span>
-                  <kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px]">Enter</kbd> select
+                  <kbd className="px-[6px] py-[2px] bg-muted rounded text-[10px]">Enter</kbd> select
                 </span>
                 <span>
-                  <kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px]">Esc</kbd> close
+                  <kbd className="px-[6px] py-[2px] bg-muted rounded text-[10px]">Esc</kbd> close
                 </span>
               </div>
             </>

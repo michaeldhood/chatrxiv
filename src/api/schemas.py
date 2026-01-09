@@ -1,26 +1,30 @@
 """
 Pydantic schemas for API request/response models.
 """
-from typing import List, Optional, Dict, Any
-from datetime import datetime
-from pydantic import BaseModel, Field
+
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class Message(BaseModel):
     """Individual message in a chat."""
+
+    model_config = ConfigDict(from_attributes=True)
+
     role: str
     text: Optional[str] = None
     rich_text: Optional[str] = None
     created_at: Optional[str] = None
     bubble_id: Optional[str] = None
     message_type: str = Field(default="response")
-    
-    class Config:
-        from_attributes = True
 
 
 class ChatSummary(BaseModel):
     """Chat summary for list views."""
+
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     composer_id: Optional[str] = None
     title: Optional[str] = None
@@ -31,13 +35,13 @@ class ChatSummary(BaseModel):
     workspace_hash: Optional[str] = None
     workspace_path: Optional[str] = None
     tags: List[str] = Field(default_factory=list)
-    
-    class Config:
-        from_attributes = True
 
 
 class ChatDetail(BaseModel):
     """Full chat with all messages."""
+
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     composer_id: Optional[str] = None
     title: Optional[str] = None
@@ -51,13 +55,13 @@ class ChatDetail(BaseModel):
     files: List[str] = Field(default_factory=list)
     messages: List[Message] = Field(default_factory=list)
     processed_messages: List[Dict[str, Any]] = Field(default_factory=list)
-    
-    class Config:
-        from_attributes = True
 
 
 class SearchResult(BaseModel):
     """Search result with highlighted snippet."""
+
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     composer_id: Optional[str] = None
     title: Optional[str] = None
@@ -69,13 +73,11 @@ class SearchResult(BaseModel):
     workspace_path: Optional[str] = None
     tags: List[str] = Field(default_factory=list)
     snippet: Optional[str] = None
-    
-    class Config:
-        from_attributes = True
 
 
 class ChatsResponse(BaseModel):
     """Response for /api/chats endpoint."""
+
     chats: List[ChatSummary]
     total: int
     page: int
@@ -85,6 +87,7 @@ class ChatsResponse(BaseModel):
 
 class SearchResponse(BaseModel):
     """Response for /api/search endpoint."""
+
     query: str
     results: List[SearchResult]
     total: int
@@ -94,6 +97,7 @@ class SearchResponse(BaseModel):
 
 class InstantSearchResponse(BaseModel):
     """Response for /api/instant-search endpoint."""
+
     query: str
     results: List[SearchResult]
     count: int
@@ -101,6 +105,7 @@ class InstantSearchResponse(BaseModel):
 
 class WorkspaceFacet(BaseModel):
     """Workspace facet information."""
+
     count: int
     resolved_path: Optional[str] = None
     workspace_hash: Optional[str] = None
@@ -109,6 +114,7 @@ class WorkspaceFacet(BaseModel):
 
 class SearchFacetsResponse(BaseModel):
     """Response for search with facets."""
+
     query: str
     results: List[SearchResult]
     total: int
@@ -123,11 +129,13 @@ class SearchFacetsResponse(BaseModel):
 
 class FilterOption(BaseModel):
     """A filter option with its count."""
+
     value: str
     count: int
 
 
 class FilterOptionsResponse(BaseModel):
     """Response for /api/filter-options endpoint."""
+
     sources: List[FilterOption] = Field(default_factory=list)
     modes: List[FilterOption] = Field(default_factory=list)

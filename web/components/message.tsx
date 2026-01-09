@@ -40,13 +40,13 @@ export function Message({ message }: MessageProps) {
       }`}
     >
       <div
-        className={`px-4.5 pt-3.5 pb-2 flex items-center gap-2.5 text-xs font-semibold uppercase tracking-wide ${
+        className={`px-[18px] pt-[14px] pb-2 flex items-center gap-[10px] text-xs font-semibold uppercase tracking-wide ${
           isUser ? 'text-primary' : 'text-accent-green'
         }`}
       >
         <span>{message.role === 'user' ? 'User' : 'Assistant'}</span>
         {isThinking && (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-accent-purple/20 text-accent-purple rounded-xl text-xs font-medium normal-case">
+          <span className="inline-flex items-center gap-1 px-2 py-[2px] bg-accent-purple/20 text-accent-purple rounded-xl text-xs font-medium normal-case">
             🧠 Thinking
           </span>
         )}
@@ -56,7 +56,7 @@ export function Message({ message }: MessageProps) {
           </span>
         )}
       </div>
-      <div className="px-4.5 pb-4.5 text-[15px] leading-relaxed text-foreground">
+      <div className="px-[18px] pb-[18px] text-[15px] leading-relaxed text-foreground">
         {content ? <Markdown content={content} /> : <span className="text-muted-foreground italic">Empty message</span>}
       </div>
     </div>

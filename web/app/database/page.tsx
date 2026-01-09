@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { fetchChats, fetchFilterOptions, type ChatSummary, type FilterOption } from '@/lib/api';
@@ -24,13 +24,7 @@ export default function DatabasePage() {
   const [availableSources, setAvailableSources] = useState<FilterOption[]>([]);
   const [availableModes, setAvailableModes] = useState<FilterOption[]>([]);
   
-  // SSE hook for live updates
-  const refreshChats = () => {
-    loadChats();
-  };
-  useSSE(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/stream`, refreshChats);
-  
-  const loadChats = async () => {
+  const loadChats = useCallback(async () => {
     setLoading(true);
     try {
       const data = await fetchChats(page, 50, filter || undefined);
@@ -86,7 +80,10 @@ export default function DatabasePage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, filter, modeFilter, sourceFilter, sortBy, sortOrder]);
+  
+  // SSE hook for live updates
+  useSSE(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/stream`, loadChats);
   
   // Fetch filter options on mount (sources and modes with counts)
   useEffect(() => {
@@ -104,7 +101,7 @@ export default function DatabasePage() {
   
   useEffect(() => {
     loadChats();
-  }, [page, filter, modeFilter, sourceFilter, sortBy, sortOrder]);
+  }, [loadChats]);
   
   const handleSort = (field: SortField) => {
     if (sortBy === field) {
@@ -137,7 +134,7 @@ export default function DatabasePage() {
   
   const getModeBadgeClass = (mode?: string | null) => {
     const modeClass = mode || 'chat';
-    return `text-[11px] px-2 py-0.5 rounded uppercase font-semibold ${
+    return `text-[11px] px-2 py-[2px] rounded uppercase font-semibold ${
       modeClass === 'chat' ? 'bg-accent-blue/20 text-accent-blue' :
       modeClass === 'edit' ? 'bg-accent-orange/20 text-accent-orange' :
       modeClass === 'agent' || modeClass === 'composer' ? 'bg-accent-purple/20 text-accent-purple' :
@@ -147,7 +144,7 @@ export default function DatabasePage() {
   
   const getSourceBadgeClass = (source?: string | null) => {
     const src = source || 'cursor';
-    return `text-xs px-2 py-0.5 rounded-full ${
+    return `text-xs px-2 py-[2px] rounded-full ${
       src === 'claude.ai' ? 'bg-accent-purple/15 text-accent-purple' :
       src === 'chatgpt' ? 'bg-accent-green/15 text-accent-green' :
       'bg-accent-blue/15 text-accent-blue'
@@ -168,7 +165,7 @@ export default function DatabasePage() {
           <select
             value={filter || ''}
             onChange={(e) => handleFilterChange('filter', e.target.value || null)}
-            className="px-2.5 py-1.5 border border-border rounded-md bg-muted text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring min-w-[120px]"
+            className="px-[10px] py-[6px] border border-border rounded-md bg-muted text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring min-w-[120px]"
           >
             <option value="">All</option>
             <option value="non_empty">Non-Empty</option>
@@ -183,7 +180,7 @@ export default function DatabasePage() {
           <select
             value={modeFilter || ''}
             onChange={(e) => handleFilterChange('mode', e.target.value || null)}
-            className="px-2.5 py-1.5 border border-border rounded-md bg-muted text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring min-w-[120px]"
+            className="px-[10px] py-[6px] border border-border rounded-md bg-muted text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring min-w-[120px]"
           >
             <option value="">All</option>
             {availableModes.map(mode => (
@@ -201,7 +198,7 @@ export default function DatabasePage() {
           <select
             value={sourceFilter || ''}
             onChange={(e) => handleFilterChange('source', e.target.value || null)}
-            className="px-2.5 py-1.5 border border-border rounded-md bg-muted text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring min-w-[120px]"
+            className="px-[10px] py-[6px] border border-border rounded-md bg-muted text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring min-w-[120px]"
           >
             <option value="">All</option>
             {availableSources.map(source => (
@@ -317,7 +314,7 @@ export default function DatabasePage() {
                     </td>
                     <td className="px-4 py-3 text-center">
                       <span
-                        className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                        className={`text-xs font-medium px-2 py-[2px] rounded-full ${
                           chat.messages_count === 0
                             ? 'bg-accent-orange/15 text-accent-orange'
                             : 'bg-accent-green/15 text-accent-green'
@@ -341,7 +338,7 @@ export default function DatabasePage() {
                         {chat.tags?.slice(0, 3).map((tag) => (
                           <span
                             key={tag}
-                            className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground"
+                            className="text-[10px] px-[6px] py-[2px] rounded bg-muted text-muted-foreground"
                           >
                             {tag.split('/').pop()}
                           </span>
@@ -367,8 +364,17 @@ export default function DatabasePage() {
           {page > 1 && (
             <button
               onClick={() => {
-                setPage(page - 1);
-                updateURL();
+                const newPage = page - 1;
+                setPage(newPage);
+                // Update URL with new page value
+                const params = new URLSearchParams();
+                if (filter) params.set('filter', filter);
+                if (modeFilter) params.set('mode', modeFilter);
+                if (sourceFilter) params.set('source', sourceFilter);
+                if (sortBy !== 'created_at') params.set('sort', sortBy);
+                if (sortOrder !== 'desc') params.set('order', sortOrder);
+                if (newPage > 1) params.set('page', String(newPage));
+                router.push(`/database?${params.toString()}`);
               }}
               className="px-4 py-2 bg-card border border-border rounded-lg text-sm text-foreground hover:bg-muted hover:border-primary transition-colors"
             >
@@ -381,8 +387,17 @@ export default function DatabasePage() {
           {chats.length === 50 && (
             <button
               onClick={() => {
-                setPage(page + 1);
-                updateURL();
+                const newPage = page + 1;
+                setPage(newPage);
+                // Update URL with new page value
+                const params = new URLSearchParams();
+                if (filter) params.set('filter', filter);
+                if (modeFilter) params.set('mode', modeFilter);
+                if (sourceFilter) params.set('source', sourceFilter);
+                if (sortBy !== 'created_at') params.set('sort', sortBy);
+                if (sortOrder !== 'desc') params.set('order', sortOrder);
+                if (newPage > 1) params.set('page', String(newPage));
+                router.push(`/database?${params.toString()}`);
               }}
               className="px-4 py-2 bg-card border border-border rounded-lg text-sm text-foreground hover:bg-muted hover:border-primary transition-colors"
             >
