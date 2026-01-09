@@ -170,51 +170,48 @@ python -m src update-modes
 
 ### Web Interface
 
-Start the web UI to browse chats in your browser. The interface uses FastAPI for the backend and Next.js for the frontend.
+Start the web UI to browse chats. **One command does everything:**
 
-**Prerequisites:**
-- Python 3.8+ with dependencies installed
-- Node.js 18+ and npm
-
-**Setup:**
 ```bash
-# Install Python dependencies
-pip install -r requirements.txt
-
-# Install Node.js dependencies
-cd web && npm install && cd ..
+python -m src web
 ```
 
-**Development (with hot reload):**
-```bash
-# Run both API and frontend servers concurrently
-npm run dev
+This single command:
+- Serves the web UI at http://localhost:5000
+- Watches Cursor's database files for new chats
+- Auto-ingests new chats when detected  
+- Pushes live updates to the browser via SSE
 
-# Or run separately:
-# Terminal 1: FastAPI backend
+**Options:**
+```bash
+# With auto-reload for development
 python -m src web --reload
 
-# Terminal 2: Next.js frontend
-cd web && npm run dev
+# Disable file watching (just serve existing chats)
+python -m src web --no-watch
+
+# Custom host/port
+python -m src web --host 0.0.0.0 --port 8080
 ```
 
-**Production:**
-```bash
-# Start FastAPI backend (default: http://127.0.0.1:5000)
-python -m src web
+**For Next.js frontend development** (optional, requires Node.js 18+):
 
-# Build and start Next.js frontend
-cd web && npm run build && npm start
+```bash
+# Install Node.js dependencies (first time only)
+cd web && npm install && cd ..
+
+# Run API + Next.js frontend concurrently
+npm run dev
+# Then open http://localhost:3000 (Next.js hot reload)
 ```
 
 The web interface includes:
-- **Live updates**: Server-Sent Events (SSE) for real-time updates when new chats are ingested
+- **Auto-ingest**: New Cursor chats appear automatically (no separate `watch` command needed)
+- **Live updates**: SSE pushes changes to your browser in real-time
 - **Instant search**: Typeahead search with keyboard navigation (⌘K)
 - **Multiple views**: List view and database/spreadsheet view
 - **Full-text search**: Search across all chat content with tag and workspace facets
 - **Dark theme**: VS Code-inspired dark theme
-
-Access the frontend at http://localhost:3000 (dev) or http://localhost:5000 (production).
 
 ## File Naming Convention
 

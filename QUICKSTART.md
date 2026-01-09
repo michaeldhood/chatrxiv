@@ -58,26 +58,35 @@ python -m src export --chat-id 123 --output-dir exports
 
 ### 5. Web UI
 
-Start the web interface (requires Node.js):
+Start the web interface:
+
+```bash
+# Single command does everything:
+python -m src web
+
+# With auto-reload for development:
+python -m src web --reload
+```
+
+This single command:
+- Serves the web UI at http://localhost:5000
+- Watches Cursor's database files for new chats
+- Auto-ingests new chats when detected
+- Pushes live updates to the browser via SSE
+
+**For Next.js frontend development** (optional, requires Node.js):
 
 ```bash
 # Install Node.js dependencies (first time only)
 cd web && npm install && cd ..
 
-# Start both API and frontend servers
+# Run API + Next.js frontend concurrently
 npm run dev
-
-# Or start separately:
-# Terminal 1: Backend API
-python -m src web --reload
-
-# Terminal 2: Frontend (in web/ directory)
-cd web && npm run dev
+# Then open http://localhost:3000 (Next.js) instead of :5000
 ```
 
-Then open http://localhost:3000 in your browser (dev mode) or http://localhost:5000 (production).
-
 The web UI features:
+- **Auto-ingest** - New Cursor chats appear automatically
 - **Instant search** with ⌘K shortcut
 - **Live updates** via Server-Sent Events
 - **List and database views** for browsing chats
