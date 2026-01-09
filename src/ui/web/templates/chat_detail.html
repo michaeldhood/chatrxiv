@@ -40,6 +40,117 @@
         margin-top: 16px;
     }
     
+    /* Visibility Toggles */
+    .visibility-toggles {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 16px;
+        padding-top: 16px;
+        border-top: 1px solid var(--border-color);
+    }
+    
+    .visibility-toggles-label {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--text-secondary);
+        margin-right: 8px;
+        display: flex;
+        align-items: center;
+    }
+    
+    .toggle-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 12px;
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--text-secondary);
+        background: var(--bg-tertiary);
+        border: 1px solid var(--border-color);
+        border-radius: 16px;
+        cursor: pointer;
+        transition: all 0.15s;
+        user-select: none;
+    }
+    
+    .toggle-btn:hover {
+        background: var(--bg-hover);
+        border-color: var(--accent-blue);
+    }
+    
+    .toggle-btn.active {
+        background: rgba(86, 156, 214, 0.15);
+        border-color: var(--accent-blue);
+        color: var(--accent-blue);
+    }
+    
+    .toggle-btn .toggle-icon {
+        font-size: 14px;
+    }
+    
+    .toggle-btn .toggle-count {
+        font-size: 10px;
+        padding: 2px 6px;
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 10px;
+        min-width: 20px;
+        text-align: center;
+    }
+    
+    .toggle-btn.active .toggle-count {
+        background: rgba(86, 156, 214, 0.3);
+    }
+    
+    /* Hidden state for filtered items */
+    .message.hidden-by-filter,
+    .tool-call-group.hidden-by-filter {
+        display: none !important;
+    }
+    
+    /* Plan badge */
+    .message-header .plan-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 2px 8px;
+        background: rgba(78, 201, 176, 0.2);
+        color: var(--accent-green);
+        border-radius: 12px;
+        font-size: 11px;
+        font-weight: 500;
+        text-transform: none;
+        letter-spacing: normal;
+    }
+    
+    /* Tool call item enhancements */
+    .tool-call-item .tool-description {
+        display: block;
+        margin-top: 4px;
+        font-size: 12px;
+        color: var(--text-muted);
+        font-style: italic;
+    }
+    
+    /* Tool type color coding */
+    .tool-call-item[data-tool-type="terminal"] {
+        border-left: 3px solid var(--accent-orange);
+    }
+    
+    .tool-call-item[data-tool-type="file-write"] {
+        border-left: 3px solid var(--accent-purple);
+    }
+    
+    .tool-call-item[data-tool-type="file-read"] {
+        border-left: 3px solid var(--accent-blue);
+    }
+    
+    .tool-call-item[data-tool-type="plan"] {
+        border-left: 3px solid var(--accent-green);
+    }
+    
     .copy-btn {
         display: inline-flex;
         align-items: center;
@@ -424,6 +535,35 @@
                 <span>Copy as JSON</span>
             </button>
         </div>
+        
+        <div class="visibility-toggles">
+            <span class="visibility-toggles-label">Show:</span>
+            <button class="toggle-btn active" data-filter="thinking" onclick="toggleFilter('thinking', this)">
+                <span class="toggle-icon">🧠</span>
+                <span>Thinking</span>
+                <span class="toggle-count" id="thinking-count">0</span>
+            </button>
+            <button class="toggle-btn active" data-filter="terminal" onclick="toggleFilter('terminal', this)">
+                <span class="toggle-icon">💻</span>
+                <span>Terminal</span>
+                <span class="toggle-count" id="terminal-count">0</span>
+            </button>
+            <button class="toggle-btn active" data-filter="file-write" onclick="toggleFilter('file-write', this)">
+                <span class="toggle-icon">📝</span>
+                <span>Files Written</span>
+                <span class="toggle-count" id="file-write-count">0</span>
+            </button>
+            <button class="toggle-btn active" data-filter="file-read" onclick="toggleFilter('file-read', this)">
+                <span class="toggle-icon">📖</span>
+                <span>Files Read</span>
+                <span class="toggle-count" id="file-read-count">0</span>
+            </button>
+            <button class="toggle-btn active" data-filter="plan" onclick="toggleFilter('plan', this)">
+                <span class="toggle-icon">📋</span>
+                <span>Plans</span>
+                <span class="toggle-count" id="plan-count">0</span>
+            </button>
+        </div>
     </div>
     
     {% if chat.tags %}
@@ -455,16 +595,19 @@
         {% if chat.processed_messages %}
             {% for item in chat.processed_messages %}
                 {% if item.type == 'tool_call_group' %}
-                    <div class="tool-call-group">
+                    <div class="tool-call-group" data-content-types="{{ item.content_types|join(' ') if item.content_types else 'tool-call' }}">
                         <div class="tool-call-header" onclick="toggleToolCalls(this)">
                             <span class="chevron">▶</span>
                             <span class="tool-icon">🔧</span>
-                            <span>{{ item.tool_calls|length }} tool call{{ 's' if item.tool_calls|length != 1 else '' }}</span>
+                            <span>{{ item.tool_calls|length }} tool call{{ 's' if item.tool_calls|length != 1 else '' }}{% if item.summary %} - {{ item.summary }}{% endif %}</span>
                         </div>
                         <div class="tool-call-content">
                             {% for tool_msg in item.tool_calls %}
-                            <div class="tool-call-item">
-                                <strong>{{ tool_msg.role|title }}</strong>
+                            <div class="tool-call-item" data-tool-type="{{ tool_msg.tool_type or 'unknown' }}">
+                                <strong>{{ tool_msg.tool_name or tool_msg.role|title }}</strong>
+                                {% if tool_msg.tool_description %}
+                                <span class="tool-description">{{ tool_msg.tool_description }}</span>
+                                {% endif %}
                                 {% if tool_msg.created_at %}
                                 <span class="timestamp" data-timestamp="{{ tool_msg.created_at }}" title="{{ tool_msg.created_at }}"></span>
                                 {% endif %}
@@ -479,11 +622,22 @@
                     </div>
                 {% elif item.type == 'message' %}
                     {% set msg = item.data %}
-                    <div class="message {{ msg.role }}">
+                    {% set content_type = msg.message_type or 'response' %}
+                    {% if content_type == 'thinking' %}
+                        {% set data_types = 'thinking' %}
+                    {% elif msg.is_plan %}
+                        {% set data_types = 'plan' %}
+                    {% else %}
+                        {% set data_types = 'response' %}
+                    {% endif %}
+                    <div class="message {{ msg.role }}" data-content-types="{{ data_types }}">
                         <div class="message-header">
                             <span class="role">{{ msg.role|title }}</span>
                             {% if msg.message_type == 'thinking' %}
                             <span class="thinking-badge">🧠 Thinking</span>
+                            {% endif %}
+                            {% if msg.is_plan %}
+                            <span class="plan-badge">📋 Plan</span>
                             {% endif %}
                             {% if msg.created_at %}
                             <span class="timestamp" data-timestamp="{{ msg.created_at }}" title="{{ msg.created_at }}"></span>
@@ -889,6 +1043,145 @@
     } else {
         // DOM already loaded, call immediately
         initJumpNav();
+    }
+    
+    // =============================================================
+    // Visibility Toggle System
+    // =============================================================
+    
+    // Track which filters are active (all start active/visible)
+    const filterState = {
+        'thinking': true,
+        'terminal': true,
+        'file-write': true,
+        'file-read': true,
+        'plan': true
+    };
+    
+    // Count elements by content type
+    function countContentTypes() {
+        const counts = {
+            'thinking': 0,
+            'terminal': 0,
+            'file-write': 0,
+            'file-read': 0,
+            'plan': 0
+        };
+        
+        // Count messages by type
+        document.querySelectorAll('.message[data-content-types]').forEach(el => {
+            const types = el.dataset.contentTypes.split(' ');
+            types.forEach(type => {
+                if (counts.hasOwnProperty(type)) {
+                    counts[type]++;
+                }
+            });
+        });
+        
+        // Count tool call groups by type
+        document.querySelectorAll('.tool-call-group[data-content-types]').forEach(el => {
+            const types = el.dataset.contentTypes.split(' ');
+            types.forEach(type => {
+                if (counts.hasOwnProperty(type)) {
+                    counts[type]++;
+                }
+            });
+        });
+        
+        return counts;
+    }
+    
+    // Update count badges
+    function updateCountBadges() {
+        const counts = countContentTypes();
+        
+        Object.keys(counts).forEach(type => {
+            const badge = document.getElementById(`${type}-count`);
+            if (badge) {
+                badge.textContent = counts[type];
+            }
+        });
+    }
+    
+    // Toggle a filter on/off
+    function toggleFilter(filterType, buttonEl) {
+        // Toggle state
+        filterState[filterType] = !filterState[filterType];
+        
+        // Update button appearance
+        buttonEl.classList.toggle('active', filterState[filterType]);
+        
+        // Apply visibility changes
+        applyFilters();
+        
+        // Store preference in localStorage
+        localStorage.setItem('chatVisibilityFilters', JSON.stringify(filterState));
+    }
+    
+    // Apply current filter state to all elements
+    function applyFilters() {
+        // Process messages
+        document.querySelectorAll('.message[data-content-types]').forEach(el => {
+            const types = el.dataset.contentTypes.split(' ');
+            
+            // Check if ALL of this element's types are hidden
+            // An element is hidden only if ALL its types are filtered out
+            const shouldHide = types.every(type => filterState.hasOwnProperty(type) && !filterState[type]);
+            
+            // For response type (regular messages), always show unless it's specifically thinking/plan
+            if (types.includes('response') && !types.includes('thinking') && !types.includes('plan')) {
+                el.classList.remove('hidden-by-filter');
+            } else {
+                el.classList.toggle('hidden-by-filter', shouldHide);
+            }
+        });
+        
+        // Process tool call groups
+        document.querySelectorAll('.tool-call-group[data-content-types]').forEach(el => {
+            const types = el.dataset.contentTypes.split(' ');
+            
+            // A tool call group is hidden if ALL its types are filtered out
+            const shouldHide = types.length > 0 && types.every(type => filterState.hasOwnProperty(type) && !filterState[type]);
+            
+            el.classList.toggle('hidden-by-filter', shouldHide);
+        });
+    }
+    
+    // Load saved filter preferences
+    function loadFilterPreferences() {
+        try {
+            const saved = localStorage.getItem('chatVisibilityFilters');
+            if (saved) {
+                const savedState = JSON.parse(saved);
+                Object.assign(filterState, savedState);
+                
+                // Update button states
+                Object.keys(filterState).forEach(type => {
+                    const btn = document.querySelector(`.toggle-btn[data-filter="${type}"]`);
+                    if (btn) {
+                        btn.classList.toggle('active', filterState[type]);
+                    }
+                });
+                
+                // Apply filters
+                applyFilters();
+            }
+        } catch (e) {
+            console.debug('Could not load filter preferences:', e);
+        }
+    }
+    
+    // Initialize visibility system
+    function initVisibilityToggles() {
+        updateCountBadges();
+        loadFilterPreferences();
+    }
+    
+    // Run on DOM ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initVisibilityToggles);
+    } else {
+        initVisibilityToggles();
     }
 </script>
 {% endblock %}
