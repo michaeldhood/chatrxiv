@@ -529,6 +529,15 @@ class ChatAggregator:
             text = bubble.get("text", "")
             rich_text = bubble.get("richText", "")
 
+            # Extract thinking content if present and no regular text exists
+            # This ensures thinking messages display their content instead of "Empty message"
+            if not text:
+                thinking_data = bubble.get("thinking")
+                if thinking_data and isinstance(thinking_data, dict):
+                    thinking_text = thinking_data.get("text", "")
+                    if thinking_text:
+                        text = thinking_text
+
             # Classify the bubble type
             message_type = self._classify_bubble(bubble)
 
