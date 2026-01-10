@@ -45,6 +45,7 @@ class PlanInfo(BaseModel):
     name: str
     file_path: Optional[str] = None
     relationship: str  # 'created', 'edited', or 'referenced'
+    created_at: Optional[str] = None
 
 
 class PlanContent(BaseModel):

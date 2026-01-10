@@ -56,6 +56,7 @@ export interface PlanInfo {
   name: string;
   file_path?: string | null;
   relationship: string; // 'created', 'edited', or 'referenced'
+  created_at?: string | null;
 }
 
 export interface ChatDetail extends ChatSummary {
