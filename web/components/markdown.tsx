@@ -73,22 +73,28 @@ export function Markdown({ content, className = '' }: MarkdownProps) {
           ),
           hr: () => <hr className="border-t border-border my-6" />,
           table: ({ children }) => (
-            <div className="overflow-x-auto my-4">
-              <table className="w-full border-collapse border border-border">
+            <div className="overflow-x-auto my-4 rounded-lg border border-border">
+              <table className="w-full border-collapse">
                 {children}
               </table>
             </div>
           ),
           thead: ({ children }) => (
-            <thead className="bg-muted">{children}</thead>
+            <thead className="bg-muted/50">{children}</thead>
+          ),
+          tbody: ({ children }) => (
+            <tbody className="divide-y divide-border">{children}</tbody>
+          ),
+          tr: ({ children }) => (
+            <tr className="hover:bg-muted/30 transition-colors">{children}</tr>
           ),
           th: ({ children }) => (
-            <th className="border border-border px-[14px] py-[10px] text-left font-semibold">
+            <th className="border border-border px-4 py-3 text-left font-semibold text-sm">
               {children}
             </th>
           ),
           td: ({ children }) => (
-            <td className="border border-border px-[14px] py-[10px]">{children}</td>
+            <td className="border border-border px-4 py-3 text-sm">{children}</td>
           ),
         };
   
