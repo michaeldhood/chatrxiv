@@ -42,7 +42,7 @@ class ChatDatabase:
 
     def _ensure_schema(self):
         """Create database schema if it doesn't exist."""
-        self.conn = sqlite3.connect(self.db_path)
+        self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
 
         # Enable WAL mode for concurrent read/write access
