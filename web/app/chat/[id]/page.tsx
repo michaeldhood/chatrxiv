@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { fetchChat, type ChatDetail, type Message } from '@/lib/api';
+import { fetchChat, summarizeChat, type ChatDetail, type Message } from '@/lib/api';
 import { Message as MessageComponent } from '@/components/message';
 import { PlanCreatedIndicator } from '@/components/plan-created-indicator';
 import { PlanContent } from '@/components/plan-content';
@@ -17,8 +17,11 @@ export default function ChatDetailPage() {
   const chatId = Number(params.id);
   const [chat, setChat] = useState<ChatDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [summarizing, setSummarizing] = useState(false);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
   const [expandedToolGroups, setExpandedToolGroups] = useState<Set<number>>(new Set());
   const [currentUserMessageIndex, setCurrentUserMessageIndex] = useState(0);
+  const [summaryExpanded, setSummaryExpanded] = useState(true);
   const userMessagesRef = useRef<HTMLDivElement[]>([]);
   
   // Visibility filter state (all start active/visible)
@@ -162,6 +165,24 @@ export default function ChatDetailPage() {
       alert('Copy failed');
     }
   };
+
+  const handleSummarize = async () => {
+    if (!chat || summarizing) return;
+    
+    setSummarizing(true);
+    setSummaryError(null);
+    
+    try {
+      const result = await summarizeChat(chat.id);
+      // Reload chat to get updated summary
+      await loadChat();
+    } catch (error) {
+      console.error('Failed to summarize:', error);
+      setSummaryError(error instanceof Error ? error.message : 'Failed to generate summary');
+    } finally {
+      setSummarizing(false);
+    }
+  };
   
   const getTagClass = (tag: string) => {
     const dimension = tag.split('/')[0];
@@ -295,6 +316,28 @@ export default function ChatDetailPage() {
               </svg>
               Copy as JSON
             </button>
+            <button
+              onClick={handleSummarize}
+              disabled={summarizing}
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {summarizing ? (
+                <>
+                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Summarizing...
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  {chat?.summary ? 'Re-summarize' : 'Summarize'}
+                </>
+              )}
+            </button>
           </div>
           
           {/* Visibility Toggles */}
@@ -352,6 +395,40 @@ export default function ChatDetailPage() {
           </div>
         </div>
         
+        {/* Summary */}
+        {chat.summary && (
+          <div className="mx-6 mt-5 p-4 bg-muted rounded-lg border border-border">
+            <button
+              onClick={() => setSummaryExpanded(!summaryExpanded)}
+              className="w-full flex items-center justify-between mb-3"
+            >
+              <strong className="block text-xs uppercase tracking-wide text-muted-foreground">
+                Summary
+              </strong>
+              <svg
+                className={`w-4 h-4 text-muted-foreground transition-transform ${summaryExpanded ? 'rotate-180' : ''}`}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            {summaryExpanded && (
+              <div className="prose prose-sm max-w-none dark:prose-invert">
+                <Markdown content={chat.summary} />
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Summary Error */}
+        {summaryError && (
+          <div className="mx-6 mt-5 p-4 bg-destructive/10 border border-destructive/20 rounded-lg">
+            <p className="text-sm text-destructive">{summaryError}</p>
+          </div>
+        )}
+
         {/* Tags */}
         {chat.tags && chat.tags.length > 0 && (
           <div className="mx-6 mt-5 p-4 bg-muted rounded-lg border border-border">

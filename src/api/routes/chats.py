@@ -18,6 +18,7 @@ from src.api.schemas import (
 )
 from src.core.db import ChatDatabase
 from src.services.search import ChatSearchService
+from src.services.summarizer import ChatSummarizer
 
 router = APIRouter()
 
@@ -531,6 +532,84 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
     chat["processed_messages"] = processed_messages
 
     return ChatDetail(**chat)
+
+
+@router.post("/chats/{chat_id}/summarize")
+def summarize_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
+    """
+    Generate and store a summary for a chat using Claude API.
+
+    Parameters
+    ----
+    chat_id : int
+        Chat ID to summarize
+    db : ChatDatabase
+        Database instance (injected via dependency)
+
+    Returns
+    ----
+    Dict[str, Any]
+        Summary text and metadata
+
+    Raises
+    ---
+    HTTPException
+        404 if chat not found
+        500 if summarization fails (API key missing, API error, etc.)
+    """
+    search_service = ChatSearchService(db)
+    chat = search_service.get_chat(chat_id)
+
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+
+    # Check if API key is configured
+    import os
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise HTTPException(
+            status_code=500,
+            detail="ANTHROPIC_API_KEY environment variable not set. "
+            "Set it to use chat summarization.",
+        )
+
+    try:
+        # Initialize summarizer
+        summarizer = ChatSummarizer(api_key=api_key)
+
+        # Generate summary
+        summary = summarizer.summarize_chat(
+            chat_title=chat.get("title") or "Untitled Chat",
+            messages=chat.get("messages", []),
+            workspace_path=chat.get("workspace_path"),
+            created_at=chat.get("created_at"),
+        )
+
+        # Store summary in database
+        db.update_chat_summary(chat_id, summary)
+
+        return {
+            "summary": summary,
+            "chat_id": chat_id,
+            "generated_at": chat.get("created_at"),  # Could add timestamp here
+        }
+
+    except ImportError as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Summarization service not available: {str(e)}",
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        import logging
+
+        logger = logging.getLogger(__name__)
+        logger.error("Error generating summary: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate summary: {str(e)}",
+        )
 
 
 @router.get("/filter-options", response_model=FilterOptionsResponse)

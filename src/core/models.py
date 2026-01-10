@@ -96,6 +96,7 @@ class Chat:
     created_at: Optional[datetime] = None
     last_updated_at: Optional[datetime] = None
     source: str = "cursor"  # "cursor" or "legacy"
+    summary: Optional[str] = None  # LLM-generated summary
     messages: List[Message] = None
     relevant_files: List[str] = None
 

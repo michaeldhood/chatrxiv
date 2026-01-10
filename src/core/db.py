@@ -102,6 +102,13 @@ class ChatDatabase:
             )
             logger.info("Added messages_count column to chats table")
 
+        # Migration: Add summary column if it doesn't exist
+        if "summary" not in columns:
+            cursor.execute(
+                "ALTER TABLE chats ADD COLUMN summary TEXT"
+            )
+            logger.info("Added summary column to chats table")
+
         # Migration: Add project_id column to workspaces if it doesn't exist
         cursor.execute("PRAGMA table_info(workspaces)")
         workspace_columns = [row[1] for row in cursor.fetchall()]
@@ -559,7 +566,7 @@ class ChatDatabase:
             """
             SELECT c.id, c.cursor_composer_id, c.workspace_id, c.title, c.mode, 
                    c.created_at, c.last_updated_at, c.source, c.messages_count,
-                   w.workspace_hash, w.resolved_path
+                   c.summary, w.workspace_hash, w.resolved_path
             FROM chats c
             LEFT JOIN workspaces w ON c.workspace_id = w.id
             WHERE c.id = ?
@@ -581,8 +588,9 @@ class ChatDatabase:
             "last_updated_at": row[6],
             "source": row[7],
             "messages_count": row[8] if len(row) > 8 else 0,  # Handle migration case
-            "workspace_hash": row[9] if len(row) > 9 else None,
-            "workspace_path": row[10] if len(row) > 10 else None,
+            "summary": row[9] if len(row) > 9 else None,  # Handle migration case
+            "workspace_hash": row[10] if len(row) > 10 else None,
+            "workspace_path": row[11] if len(row) > 11 else None,
             "messages": [],
             "files": [],
         }
@@ -623,6 +631,24 @@ class ChatDatabase:
         chat_data["tags"] = [row[0] for row in cursor.fetchall()]
 
         return chat_data
+
+    def update_chat_summary(self, chat_id: int, summary: str) -> None:
+        """
+        Update the summary for a chat.
+
+        Parameters
+        ----
+        chat_id : int
+            Chat ID
+        summary : str
+            Summary text to store
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "UPDATE chats SET summary = ? WHERE id = ?",
+            (summary, chat_id),
+        )
+        self.conn.commit()
 
     def count_chats(
         self,

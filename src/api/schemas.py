@@ -32,6 +32,7 @@ class ChatSummary(BaseModel):
     created_at: Optional[str] = None
     source: Optional[str] = None
     messages_count: int = 0
+    summary: Optional[str] = None
     workspace_hash: Optional[str] = None
     workspace_path: Optional[str] = None
     tags: List[str] = Field(default_factory=list)
@@ -71,6 +72,7 @@ class ChatDetail(BaseModel):
     created_at: Optional[str] = None
     source: Optional[str] = None
     messages_count: int = 0
+    summary: Optional[str] = None
     workspace_hash: Optional[str] = None
     workspace_path: Optional[str] = None
     tags: List[str] = Field(default_factory=list)

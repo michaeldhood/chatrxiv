@@ -13,6 +13,7 @@ export interface ChatSummary {
   created_at?: string | null;
   source?: string | null;
   messages_count: number;
+  summary?: string | null;
   workspace_hash?: string | null;
   workspace_path?: string | null;
   tags: string[];
@@ -257,6 +258,20 @@ export async function searchWithFacets(
   const res = await fetch(`${API_BASE}/api/search/facets?${params}`);
   if (!res.ok) {
     throw new Error(`Faceted search failed: ${res.statusText}`);
+  }
+  return res.json();
+}
+
+/**
+ * Generate and store a summary for a chat using Claude API.
+ */
+export async function summarizeChat(id: number): Promise<{ summary: string; chat_id: number; generated_at?: string }> {
+  const res = await fetch(`${API_BASE}/api/chats/${id}/summarize`, {
+    method: 'POST',
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(error.detail || `Failed to summarize chat: ${res.statusText}`);
   }
   return res.json();
 }
