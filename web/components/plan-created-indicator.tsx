@@ -25,8 +25,7 @@ export function PlanCreatedIndicator({ plan }: PlanCreatedIndicatorProps) {
   };
 
   return (
-    <div className="my-6 flex items-center gap-3">
-      <div className="flex-1 border-t border-border/50"></div>
+    <div className="my-4">
       <div className="inline-flex items-center gap-2 px-4 py-2 bg-accent-purple/10 border border-accent-purple/30 rounded-full text-xs font-medium text-accent-purple">
         <span>📋</span>
         <span className="font-semibold">Plan Created:</span>
@@ -37,7 +36,6 @@ export function PlanCreatedIndicator({ plan }: PlanCreatedIndicatorProps) {
           </span>
         )}
       </div>
-      <div className="flex-1 border-t border-border/50"></div>
     </div>
   );
 }

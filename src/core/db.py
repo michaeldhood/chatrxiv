@@ -104,9 +104,7 @@ class ChatDatabase:
 
         # Migration: Add summary column if it doesn't exist
         if "summary" not in columns:
-            cursor.execute(
-                "ALTER TABLE chats ADD COLUMN summary TEXT"
-            )
+            cursor.execute("ALTER TABLE chats ADD COLUMN summary TEXT")
             logger.info("Added summary column to chats table")
 
         # Migration: Add project_id column to workspaces if it doesn't exist
@@ -598,7 +596,7 @@ class ChatDatabase:
         # Get messages
         cursor.execute(
             """
-            SELECT role, text, rich_text, created_at, cursor_bubble_id, message_type
+            SELECT role, text, rich_text, created_at, cursor_bubble_id, message_type, raw_json
             FROM messages
             WHERE chat_id = ?
             ORDER BY created_at ASC
@@ -607,6 +605,14 @@ class ChatDatabase:
         )
 
         for msg_row in cursor.fetchall():
+            # Parse raw_json from JSON string back to dict
+            raw_json_data = None
+            if len(msg_row) > 6 and msg_row[6]:
+                try:
+                    raw_json_data = json.loads(msg_row[6])
+                except (json.JSONDecodeError, TypeError):
+                    raw_json_data = None
+
             chat_data["messages"].append(
                 {
                     "role": msg_row[0],
@@ -617,6 +623,7 @@ class ChatDatabase:
                     "message_type": msg_row[5]
                     if len(msg_row) > 5
                     else "response",  # Handle migration case
+                    "raw_json": raw_json_data,
                 }
             )
 
