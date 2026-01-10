@@ -939,6 +939,45 @@ class ChatAggregator:
 
         return stats
 
+    def _link_composers_to_plan(
+        self,
+        plan_id: int,
+        plan_identifier: str,
+        composer_ids: List[str],
+        relationship: str,
+    ) -> None:
+        """
+        Link multiple composer IDs to a plan with a given relationship.
+
+        Parameters
+        ----
+        plan_id : int
+            Plan database ID
+        plan_identifier : str
+            Plan identifier for logging (e.g., "complete_chatrxiv_migration_f77a44d3")
+        composer_ids : List[str]
+            List of composer IDs to link
+        relationship : str
+            Relationship type: 'created', 'edited', or 'referenced'
+        """
+        for composer_id in composer_ids:
+            if not composer_id:
+                continue
+            chat = self.db.get_chat_by_composer_id(composer_id)
+            if chat:
+                self.db.link_chat_to_plan(
+                    chat_id=chat["id"],
+                    plan_id=plan_id,
+                    relationship=relationship,
+                )
+            else:
+                logger.debug(
+                    "Plan %s references non-existent chat composer_id (%s): %s",
+                    plan_identifier,
+                    relationship,
+                    composer_id,
+                )
+
     def ingest_plans(self) -> Dict[str, int]:
         """
         Ingest plans from Cursor's plan registry.
@@ -973,53 +1012,28 @@ class ChatAggregator:
                         last_updated_at=plan_data["last_updated_at"],
                     )
 
-                    # Link to chat that created the plan
+                    # Link chats to plan based on relationships
                     if plan_data["created_by"]:
-                        chat = self.db.get_chat_by_composer_id(plan_data["created_by"])
-                        if chat:
-                            self.db.link_chat_to_plan(
-                                chat_id=chat["id"],
-                                plan_id=plan_db_id,
-                                relationship="created",
-                            )
-                        else:
-                            logger.debug(
-                                "Plan %s references non-existent chat composer_id: %s",
-                                plan_data["plan_id"],
-                                plan_data["created_by"],
-                            )
+                        self._link_composers_to_plan(
+                            plan_id=plan_db_id,
+                            plan_identifier=plan_data["plan_id"],
+                            composer_ids=[plan_data["created_by"]],
+                            relationship="created",
+                        )
 
-                    # Link to chats that edited the plan
-                    for composer_id in plan_data.get("edited_by", []):
-                        chat = self.db.get_chat_by_composer_id(composer_id)
-                        if chat:
-                            self.db.link_chat_to_plan(
-                                chat_id=chat["id"],
-                                plan_id=plan_db_id,
-                                relationship="edited",
-                            )
-                        else:
-                            logger.debug(
-                                "Plan %s references non-existent chat composer_id (edited): %s",
-                                plan_data["plan_id"],
-                                composer_id,
-                            )
+                    self._link_composers_to_plan(
+                        plan_id=plan_db_id,
+                        plan_identifier=plan_data["plan_id"],
+                        composer_ids=plan_data.get("edited_by", []),
+                        relationship="edited",
+                    )
 
-                    # Link to chats that referenced the plan
-                    for composer_id in plan_data.get("referenced_by", []):
-                        chat = self.db.get_chat_by_composer_id(composer_id)
-                        if chat:
-                            self.db.link_chat_to_plan(
-                                chat_id=chat["id"],
-                                plan_id=plan_db_id,
-                                relationship="referenced",
-                            )
-                        else:
-                            logger.debug(
-                                "Plan %s references non-existent chat composer_id (referenced): %s",
-                                plan_data["plan_id"],
-                                composer_id,
-                            )
+                    self._link_composers_to_plan(
+                        plan_id=plan_db_id,
+                        plan_identifier=plan_data["plan_id"],
+                        composer_ids=plan_data.get("referenced_by", []),
+                        relationship="referenced",
+                    )
 
                     stats["ingested"] += 1
 
