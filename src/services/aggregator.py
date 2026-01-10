@@ -4,19 +4,19 @@ Chat aggregator service.
 Orchestrates extraction from Cursor databases, linking workspace metadata
 to global composer conversations, and storing normalized data.
 """
+
 import logging
-import os
-from pathlib import Path
 from dataclasses import dataclass
-from typing import List, Dict, Optional, Any, Tuple, Callable
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from src.core.db import ChatDatabase
-from src.core.models import Chat, Message, Workspace, ChatMode, MessageRole, MessageType
-from src.readers.workspace_reader import WorkspaceStateReader
+from src.core.models import Chat, ChatMode, Message, MessageRole, MessageType, Workspace
+from src.readers import ChatGPTReader, ClaudeReader
 from src.readers.global_reader import GlobalComposerReader
 from src.readers.plan_reader import PlanRegistryReader
-from src.readers import ClaudeReader, ChatGPTReader
+from src.readers.workspace_reader import WorkspaceStateReader
 
 logger = logging.getLogger(__name__)
 
@@ -24,18 +24,19 @@ logger = logging.getLogger(__name__)
 @dataclass
 class WebSourceConfig:
     """Configuration for web-based conversation source ingestion."""
-    name: str                          # "claude" or "chatgpt"
-    reader_class: type                 # ClaudeReader or ChatGPTReader
-    id_field: str                      # "uuid" or "id"
-    updated_field: str                 # "updated_at" or "update_time"
-    converter: Callable                # Conversion method reference
-    timestamp_parser: Callable         # Timestamp parsing method
+
+    name: str  # "claude" or "chatgpt"
+    reader_class: type  # ClaudeReader or ChatGPTReader
+    id_field: str  # "uuid" or "id"
+    updated_field: str  # "updated_at" or "update_time"
+    converter: Callable  # Conversion method reference
+    timestamp_parser: Callable  # Timestamp parsing method
 
 
 class ChatAggregator:
     """
     Aggregates chats from Cursor databases into normalized local database.
-    
+
     Handles:
     - Reading workspace metadata
     - Reading global composer conversations
@@ -43,11 +44,11 @@ class ChatAggregator:
     - Converting to domain models
     - Storing in local database
     """
-    
+
     def __init__(self, db: ChatDatabase):
         """
         Initialize aggregator.
-        
+
         Parameters
         ----
         db : ChatDatabase
@@ -57,44 +58,46 @@ class ChatAggregator:
         self.workspace_reader = WorkspaceStateReader()
         self.global_reader = GlobalComposerReader()
         self.plan_reader = PlanRegistryReader()
-    
+
     def _resolve_conversation_from_headers(
         self, composer_id: str, headers: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
         """
         Resolve conversation bubbles from headers-only format.
-        
+
         In newer Cursor versions, conversation data is split:
         - fullConversationHeadersOnly: list of {bubbleId, type} headers
         - Actual content stored separately as bubbleId:{composerId}:{bubbleId} keys
-        
+
         Uses batch query for efficiency when multiple bubbles need to be fetched.
-        
+
         Parameters
         ----
         composer_id : str
             Composer UUID
         headers : List[Dict[str, Any]]
             List of bubble headers with bubbleId and type
-            
+
         Returns
         ----
         List[Dict[str, Any]]
             List of full bubble objects with text/richText content
         """
         # Extract all bubble IDs
-        bubble_ids = [header.get("bubbleId") for header in headers if header.get("bubbleId")]
-        
+        bubble_ids = [
+            header.get("bubbleId") for header in headers if header.get("bubbleId")
+        ]
+
         # Batch fetch all bubbles in one query
         bubbles_map = self.global_reader.read_bubbles_batch(composer_id, bubble_ids)
-        
+
         # Build conversation list, preserving header order
         conversation = []
         for header in headers:
             bubble_id = header.get("bubbleId")
             if not bubble_id:
                 continue
-            
+
             bubble_data = bubbles_map.get(bubble_id)
             if bubble_data:
                 # Merge header info (type) with full bubble data
@@ -106,18 +109,18 @@ class ChatAggregator:
             else:
                 # Fallback: use header only (will have no text)
                 conversation.append(header)
-        
+
         return conversation
-    
+
     def _classify_bubble(self, bubble: Dict[str, Any]) -> MessageType:
         """
         Classify a bubble by its content type.
-        
+
         Parameters
         ----
         bubble : Dict[str, Any]
             Raw bubble data from Cursor
-            
+
         Returns
         ----
         MessageType
@@ -125,41 +128,43 @@ class ChatAggregator:
         """
         text = bubble.get("text", "")
         rich_text = bubble.get("richText", "")
-        
+
         # Has content -> response
         if text or rich_text:
             return MessageType.RESPONSE
-        
+
         # Check for tool-related fields
         # Cursor stores tool calls with various metadata fields
-        if (bubble.get("codeBlock") or 
-            bubble.get("toolFormerResult") or
-            bubble.get("toolCalls") or
-            bubble.get("toolCall")):
+        if (
+            bubble.get("codeBlock")
+            or bubble.get("toolFormerResult")
+            or bubble.get("toolCalls")
+            or bubble.get("toolCall")
+        ):
             return MessageType.TOOL_CALL
-        
+
         # Check for thinking/reasoning metadata
         # This is less common but may exist in some formats
         if bubble.get("thinking") or bubble.get("reasoning"):
             return MessageType.THINKING
-        
+
         # Default empty
         return MessageType.EMPTY
-    
+
     def _find_project_root(self, file_path: str) -> Optional[str]:
         """
         Find project root (git root or common project directory) from a file path.
-        
+
         Tries multiple strategies:
         1. Walk up directory tree looking for .git or project markers (if path exists)
         2. Infer from path structure (e.g., /workspace/project -> /workspace/project)
         3. Use parent directory as fallback
-        
+
         Parameters
         ----
         file_path : str
             Absolute file path
-            
+
         Returns
         ----
         str, optional
@@ -169,7 +174,7 @@ class ChatAggregator:
             path = Path(file_path)
             if not path.is_absolute():
                 return None
-            
+
             # Strategy 1: If path exists, walk up looking for git/project markers
             if path.exists() or path.parent.exists():
                 current = path.parent if path.is_file() else path
@@ -177,17 +182,19 @@ class ChatAggregator:
                     # Check for .git directory
                     if (current / ".git").exists():
                         return f"file://{current}"
-                    
+
                     # Check for common project markers
-                    if (current / "package.json").exists() or \
-                       (current / "pyproject.toml").exists() or \
-                       (current / "setup.py").exists() or \
-                       (current / "Cargo.toml").exists() or \
-                       (current / "go.mod").exists():
+                    if (
+                        (current / "package.json").exists()
+                        or (current / "pyproject.toml").exists()
+                        or (current / "setup.py").exists()
+                        or (current / "Cargo.toml").exists()
+                        or (current / "go.mod").exists()
+                    ):
                         return f"file://{current}"
-                    
+
                     current = current.parent
-            
+
             # Strategy 2: Infer from path structure
             # For paths like /workspace/project/..., infer /workspace/project
             # For paths like /Users/.../project/..., infer project root
@@ -198,7 +205,7 @@ class ChatAggregator:
                 if parts[1] == "workspace" and len(parts) >= 3:
                     inferred_root = Path("/") / parts[1] / parts[2]
                     return f"file://{inferred_root}"
-                
+
                 # /Users/.../git/project/... -> find project directory
                 # Walk up to find a directory that looks like a project root
                 current = path.parent if path.is_file() else path
@@ -207,7 +214,12 @@ class ChatAggregator:
                     if current == current.parent:
                         break
                     # Heuristic: if directory name looks like a project (not generic)
-                    if current.name and current.name not in ["sources", "src", "lib", "dlt"]:
+                    if current.name and current.name not in [
+                        "sources",
+                        "src",
+                        "lib",
+                        "dlt",
+                    ]:
                         # Check if parent has common project structure indicators
                         parent_parts = current.parts
                         if len(parent_parts) >= 2:
@@ -215,46 +227,52 @@ class ChatAggregator:
                             if "git" in parent_parts or "workspace" in parent_parts:
                                 return f"file://{current}"
                     current = current.parent
-            
+
             # Strategy 3: Fallback - use parent directory
             if path.is_file():
                 return f"file://{path.parent}"
-            
+
             return None
-            
+
         except (OSError, ValueError) as e:
             logger.debug("Error finding project root for %s: %s", file_path, e)
             return None
-    
+
     def _extract_path_from_uri(self, uri: Any) -> Optional[str]:
         """
         Extract file path from various URI formats.
-        
+
         Parameters
         ----
         uri : Any
             URI as dict, string, or other format
-            
+
         Returns
         ----
         str, optional
             File path, or None if not extractable
         """
         if isinstance(uri, dict):
-            return uri.get("fsPath") or uri.get("path") or uri.get("external", "").replace("file://", "")
+            return (
+                uri.get("fsPath")
+                or uri.get("path")
+                or uri.get("external", "").replace("file://", "")
+            )
         elif isinstance(uri, str):
             if uri.startswith("file://"):
                 return uri[7:]  # Remove "file://" prefix
             return uri
         return None
-    
-    def _infer_workspace_from_context(self, composer_data: Dict[str, Any]) -> Optional[str]:
+
+    def _infer_workspace_from_context(
+        self, composer_data: Dict[str, Any]
+    ) -> Optional[str]:
         """
         Extract workspace path from file selections in composer context.
-        
+
         When workspace reference is missing (e.g., deleted multi-folder config),
         we can infer the workspace from file paths referenced in the conversation.
-        
+
         Checks multiple sources:
         - context.fileSelections
         - context.folderSelections
@@ -264,12 +282,12 @@ class ChatAggregator:
         - codeBlockData keys
         - newlyCreatedFiles array
         - originalFileStates keys
-        
+
         Parameters
         ----
         composer_data : Dict[str, Any]
             Raw composer data from global database
-            
+
         Returns
         ----
         str, optional
@@ -278,16 +296,18 @@ class ChatAggregator:
         context = composer_data.get("context", {})
         if not isinstance(context, dict):
             return None
-        
+
         # Helper to try a path and return if successful
         def try_path(path: Optional[str]) -> Optional[str]:
             if not path:
                 return None
             # Remove file:// prefix if present
-            clean_path = path.replace("file://", "") if path.startswith("file://") else path
+            clean_path = (
+                path.replace("file://", "") if path.startswith("file://") else path
+            )
             project_root = self._find_project_root(clean_path)
             return project_root
-        
+
         # 1. Check context.fileSelections (most reliable)
         file_selections = context.get("fileSelections", [])
         if file_selections:
@@ -299,7 +319,7 @@ class ChatAggregator:
                 result = try_path(path)
                 if result:
                     return result
-        
+
         # 2. Check context.folderSelections
         folder_selections = context.get("folderSelections", [])
         if folder_selections:
@@ -314,7 +334,7 @@ class ChatAggregator:
                         return f"file://{abs_path}"
                     except (OSError, ValueError):
                         pass
-        
+
         # 3. Check context.selections
         selections = context.get("selections", [])
         if selections:
@@ -326,7 +346,7 @@ class ChatAggregator:
                 result = try_path(path)
                 if result:
                     return result
-        
+
         # 4. Check context.mentions.fileSelections (keys are file paths)
         mentions = context.get("mentions", {})
         if isinstance(mentions, dict):
@@ -336,7 +356,7 @@ class ChatAggregator:
                     result = try_path(file_path)
                     if result:
                         return result
-            
+
             # 5. Check context.mentions.selections (values may be JSON strings with URIs)
             mentions_selections = mentions.get("selections", {})
             if isinstance(mentions_selections, dict):
@@ -345,6 +365,7 @@ class ChatAggregator:
                     if isinstance(key, str) and "uri" in key:
                         try:
                             import json
+
                             parsed = json.loads(key)
                             uri = parsed.get("uri", "")
                             path = self._extract_path_from_uri(uri)
@@ -353,7 +374,7 @@ class ChatAggregator:
                                 return result
                         except (json.JSONDecodeError, TypeError):
                             pass
-        
+
         # 6. Check codeBlockData keys (file paths as dictionary keys)
         code_block_data = composer_data.get("codeBlockData", {})
         if isinstance(code_block_data, dict):
@@ -361,7 +382,7 @@ class ChatAggregator:
                 result = try_path(file_path)
                 if result:
                     return result
-        
+
         # 7. Check newlyCreatedFiles array
         newly_created_files = composer_data.get("newlyCreatedFiles", [])
         if newly_created_files:
@@ -372,7 +393,7 @@ class ChatAggregator:
                     result = try_path(path)
                     if result:
                         return result
-        
+
         # 8. Check originalFileStates keys (file paths as dictionary keys)
         original_file_states = composer_data.get("originalFileStates", {})
         if isinstance(original_file_states, dict):
@@ -380,15 +401,18 @@ class ChatAggregator:
                 result = try_path(file_path)
                 if result:
                     return result
-        
+
         return None
-    
-    def _convert_composer_to_chat(self, composer_data: Dict[str, Any], 
-                                   workspace_id: Optional[int] = None,
-                                   composer_head: Optional[Dict[str, Any]] = None) -> Optional[Chat]:
+
+    def _convert_composer_to_chat(
+        self,
+        composer_data: Dict[str, Any],
+        workspace_id: Optional[int] = None,
+        composer_head: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Chat]:
         """
         Convert Cursor composer data to Chat domain model.
-        
+
         Parameters
         ----
         composer_data : Dict[str, Any]
@@ -397,7 +421,7 @@ class ChatAggregator:
             Workspace ID if known
         composer_head : Dict[str, Any], optional
             Composer head metadata from workspace (for title enrichment)
-            
+
         Returns
         ----
         Chat
@@ -406,20 +430,20 @@ class ChatAggregator:
         composer_id = composer_data.get("composerId")
         if not composer_id:
             return None
-        
+
         # Determine mode (prefer workspace head, then global data)
         force_mode = None
         unified_mode = None
-        
+
         if composer_head:
             force_mode = composer_head.get("forceMode")
             unified_mode = composer_head.get("unifiedMode")
-        
+
         if not force_mode:
             force_mode = composer_data.get("forceMode", "chat")
         if not unified_mode:
             unified_mode = composer_data.get("unifiedMode", "chat")
-        
+
         mode_map = {
             "chat": ChatMode.CHAT,
             "edit": ChatMode.EDIT,
@@ -430,7 +454,7 @@ class ChatAggregator:
             "ask": ChatMode.ASK,
         }
         mode = mode_map.get(force_mode or unified_mode, ChatMode.CHAT)
-        
+
         # Extract title with enrichment priority:
         # 1. workspace composer head name
         # 2. workspace composer head subtitle
@@ -439,13 +463,13 @@ class ChatAggregator:
         title = None
         if composer_head:
             title = composer_head.get("name") or composer_head.get("subtitle")
-        
+
         if not title:
             title = composer_data.get("name") or composer_data.get("subtitle")
-        
+
         if not title:
             title = "Untitled Chat"
-        
+
         # Extract timestamps (prefer workspace head, then global data)
         created_at = None
         if composer_head and composer_head.get("createdAt"):
@@ -453,30 +477,34 @@ class ChatAggregator:
                 created_at = datetime.fromtimestamp(composer_head["createdAt"] / 1000)
             except (ValueError, TypeError):
                 pass
-        
+
         if not created_at and composer_data.get("createdAt"):
             try:
                 created_at = datetime.fromtimestamp(composer_data["createdAt"] / 1000)
             except (ValueError, TypeError):
                 pass
-        
+
         last_updated_at = None
         if composer_head and composer_head.get("lastUpdatedAt"):
             try:
-                last_updated_at = datetime.fromtimestamp(composer_head["lastUpdatedAt"] / 1000)
+                last_updated_at = datetime.fromtimestamp(
+                    composer_head["lastUpdatedAt"] / 1000
+                )
             except (ValueError, TypeError):
                 pass
-        
+
         if not last_updated_at and composer_data.get("lastUpdatedAt"):
             try:
-                last_updated_at = datetime.fromtimestamp(composer_data["lastUpdatedAt"] / 1000)
+                last_updated_at = datetime.fromtimestamp(
+                    composer_data["lastUpdatedAt"] / 1000
+                )
             except (ValueError, TypeError):
                 pass
-        
+
         # Extract conversation - try multiple formats
         # Format 1: Old style with full conversation array
         conversation = composer_data.get("conversation", [])
-        
+
         # Format 2: New style with headers-only + separate bubble storage
         # If conversation is empty, try fullConversationHeadersOnly
         if not conversation:
@@ -485,10 +513,10 @@ class ChatAggregator:
                 conversation = self._resolve_conversation_from_headers(
                     composer_id, headers
                 )
-        
+
         messages = []
         relevant_files = set()
-        
+
         for bubble in conversation:
             bubble_type = bubble.get("type")
             if bubble_type == 1:  # User message
@@ -497,13 +525,13 @@ class ChatAggregator:
                 role = MessageRole.ASSISTANT
             else:
                 continue  # Skip unknown types
-            
+
             text = bubble.get("text", "")
             rich_text = bubble.get("richText", "")
-            
+
             # Classify the bubble type
             message_type = self._classify_bubble(bubble)
-            
+
             # Extract timestamp
             msg_created_at = None
             if bubble.get("createdAt"):
@@ -511,7 +539,7 @@ class ChatAggregator:
                     msg_created_at = datetime.fromtimestamp(bubble["createdAt"] / 1000)
                 except (ValueError, TypeError):
                     pass
-            
+
             message = Message(
                 role=role,
                 text=text,
@@ -522,11 +550,11 @@ class ChatAggregator:
                 message_type=message_type,
             )
             messages.append(message)
-            
+
             # Extract relevant files
             for file_path in bubble.get("relevantFiles", []):
                 relevant_files.add(file_path)
-        
+
         # Create chat
         chat = Chat(
             cursor_composer_id=composer_id,
@@ -539,15 +567,17 @@ class ChatAggregator:
             messages=messages,
             relevant_files=list(relevant_files),
         )
-        
+
         return chat
-    
-    def _load_workspace_data(self) -> Tuple[Dict[str, int], Dict[str, Optional[int]], Dict[str, Dict[str, Any]]]:
+
+    def _load_workspace_data(
+        self,
+    ) -> Tuple[Dict[str, int], Dict[str, Optional[int]], Dict[str, Dict[str, Any]]]:
         """
         Load workspace data once and build all three mappings in a single pass.
-        
+
         This method reads workspaces only once, avoiding redundant database opens.
-        
+
         Returns
         ----
         tuple[Dict[str, int], Dict[str, Optional[int]], Dict[str, Dict[str, Any]]]
@@ -558,11 +588,11 @@ class ChatAggregator:
         """
         # Read all workspaces once
         workspaces_metadata = self.workspace_reader.read_all_workspaces()
-        
+
         workspace_map = {}
         composer_to_workspace = {}
         composer_heads = {}
-        
+
         # Build all three mappings in one pass
         for workspace_hash, metadata in workspaces_metadata.items():
             # Build workspace map
@@ -573,18 +603,18 @@ class ChatAggregator:
             )
             workspace_id = self.db.upsert_workspace(workspace)
             workspace_map[workspace_hash] = workspace_id
-            
+
             # Extract composer data from metadata (already loaded, no need to re-read)
             composer_data = metadata.get("composer_data")
             if composer_data and isinstance(composer_data, dict):
                 all_composers = composer_data.get("allComposers", [])
-                
+
                 for composer in all_composers:
                     composer_id = composer.get("composerId")
                     if composer_id:
                         # Build composer_to_workspace map
                         composer_to_workspace[composer_id] = workspace_id
-                        
+
                         # Build composer_heads map
                         composer_heads[composer_id] = {
                             "name": composer.get("name"),
@@ -594,21 +624,22 @@ class ChatAggregator:
                             "unifiedMode": composer.get("unifiedMode"),
                             "forceMode": composer.get("forceMode"),
                         }
-        
+
         return workspace_map, composer_to_workspace, composer_heads
-    
-    def ingest_all(self, progress_callback: Optional[callable] = None, 
-                   incremental: bool = False) -> Dict[str, int]:
+
+    def ingest_all(
+        self, progress_callback: Optional[callable] = None, incremental: bool = False
+    ) -> Dict[str, int]:
         """
         Ingest chats from Cursor databases.
-        
+
         Parameters
         ----
         progress_callback : callable, optional
             Callback function(composer_id, total, current) for progress updates
         incremental : bool
             If True, only process chats updated since last run. If False, process all.
-            
+
         Returns
         ----
         Dict[str, int]
@@ -616,21 +647,25 @@ class ChatAggregator:
         """
         source = "cursor"
         start_time = datetime.now()
-        
+
         last_timestamp = None
         state = None
-        
+
         if incremental:
             logger.info("Starting incremental chat ingestion from Cursor databases...")
             # Get last run state
             state = self.db.get_ingestion_state(source)
             if state and state.get("last_processed_timestamp"):
                 try:
-                    last_timestamp = datetime.fromisoformat(state["last_processed_timestamp"])
+                    last_timestamp = datetime.fromisoformat(
+                        state["last_processed_timestamp"]
+                    )
                     logger.info("Last ingestion: %s", last_timestamp)
                     logger.info("Only processing chats updated since last run...")
                 except (ValueError, TypeError):
-                    logger.warning("Invalid last_processed_timestamp, falling back to full ingestion")
+                    logger.warning(
+                        "Invalid last_processed_timestamp, falling back to full ingestion"
+                    )
                     incremental = False
                     last_timestamp = None
             else:
@@ -639,68 +674,91 @@ class ChatAggregator:
                 last_timestamp = None
         else:
             logger.info("Starting full chat ingestion from Cursor databases...")
-        
+
         # Load workspace data once and build all mappings
         logger.info("Loading workspace data...")
-        workspace_map, composer_to_workspace, composer_heads = self._load_workspace_data()
-        logger.info("Loaded %d workspaces, %d composer mappings", 
-                   len(workspace_map), len(composer_to_workspace))
-        
+        workspace_map, composer_to_workspace, composer_heads = (
+            self._load_workspace_data()
+        )
+        logger.info(
+            "Loaded %d workspaces, %d composer mappings",
+            len(workspace_map),
+            len(composer_to_workspace),
+        )
+
         # Cache for inferred workspaces (path -> workspace_id)
         # Avoids repeated workspace creation for same inferred path
         inferred_workspace_cache: Dict[str, int] = {}
         stats_inferred = 0
-        
+
         # Stream composers from global database (don't materialize)
         logger.info("Streaming composers from global database...")
-        stats = {"ingested": 0, "skipped": 0, "errors": 0, "inferred_workspaces": 0, "updated": 0, "new": 0}
-        
+        stats = {
+            "ingested": 0,
+            "skipped": 0,
+            "errors": 0,
+            "inferred_workspaces": 0,
+            "updated": 0,
+            "new": 0,
+        }
+
         # Track last processed timestamp for incremental updates
         last_processed_timestamp = None
         last_composer_id = None
-        
+
         # Get approximate total for progress (optional, can skip if slow)
         try:
             import sqlite3
+
             conn = sqlite3.connect(str(self.global_reader.db_path))
             cursor = conn.cursor()
             # Use range query with index for fast count
-            cursor.execute("SELECT COUNT(*) FROM cursorDiskKV WHERE key >= ? AND key < ?", 
-                         ("composerData:", "composerData;"))
+            cursor.execute(
+                "SELECT COUNT(*) FROM cursorDiskKV WHERE key >= ? AND key < ?",
+                ("composerData:", "composerData;"),
+            )
             total = cursor.fetchone()[0]
             conn.close()
             logger.info("Found approximately %d composers to process", total)
         except Exception as e:
             logger.warning("Could not get total count: %s", e)
             total = None
-        
+
         # Stream processing
         idx = 0
         processed_count = 0
-        
+
         for composer_info in self.global_reader.read_all_composers():
             idx += 1
             composer_id = composer_info["composer_id"]
             composer_data = composer_info["data"]
-            
+
             # Incremental mode: skip if chat hasn't been updated
             if incremental and state:
                 # Check if this chat was updated since last run
                 chat_updated_at = None
                 if composer_data.get("lastUpdatedAt"):
                     try:
-                        chat_updated_at = datetime.fromtimestamp(composer_data["lastUpdatedAt"] / 1000)
+                        chat_updated_at = datetime.fromtimestamp(
+                            composer_data["lastUpdatedAt"] / 1000
+                        )
                     except (ValueError, TypeError):
                         pass
-                
+
                 # Also check composer head for lastUpdatedAt
                 composer_head = composer_heads.get(composer_id)
-                if not chat_updated_at and composer_head and composer_head.get("lastUpdatedAt"):
+                if (
+                    not chat_updated_at
+                    and composer_head
+                    and composer_head.get("lastUpdatedAt")
+                ):
                     try:
-                        chat_updated_at = datetime.fromtimestamp(composer_head["lastUpdatedAt"] / 1000)
+                        chat_updated_at = datetime.fromtimestamp(
+                            composer_head["lastUpdatedAt"] / 1000
+                        )
                     except (ValueError, TypeError):
                         pass
-                
+
                 # If we have a timestamp, check if it's newer than last run
                 if chat_updated_at and last_timestamp:
                     if chat_updated_at <= last_timestamp:
@@ -711,8 +769,10 @@ class ChatAggregator:
                 elif not chat_updated_at:
                     # No timestamp available in source - check database for existing chat
                     cursor = self.db.conn.cursor()
-                    cursor.execute("SELECT id, last_updated_at FROM chats WHERE cursor_composer_id = ?", 
-                                 (composer_id,))
+                    cursor.execute(
+                        "SELECT id, last_updated_at FROM chats WHERE cursor_composer_id = ?",
+                        (composer_id,),
+                    )
                     existing = cursor.fetchone()
                     if existing:
                         # Chat exists in database - use its stored timestamp for comparison
@@ -733,14 +793,14 @@ class ChatAggregator:
                         stats["skipped"] += 1
                         continue
                     # Chat doesn't exist in database - process it (it's new)
-            
+
             if progress_callback and total:
                 progress_callback(composer_id, total, idx)
-            
+
             try:
                 # Find workspace for this composer
                 workspace_id = composer_to_workspace.get(composer_id)
-                
+
                 # If no workspace found, try inference from file context
                 if workspace_id is None:
                     inferred_path = self._infer_workspace_from_context(composer_data)
@@ -754,7 +814,7 @@ class ChatAggregator:
                             workspace_path = inferred_path
                             if workspace_path.startswith("file://"):
                                 workspace_path = workspace_path[7:]
-                            
+
                             workspace = Workspace(
                                 workspace_hash="",  # No hash for inferred workspaces
                                 folder_uri=inferred_path,
@@ -764,81 +824,110 @@ class ChatAggregator:
                             inferred_workspace_cache[inferred_path] = workspace_id
                             stats["inferred_workspaces"] += 1
                             stats_inferred += 1
-                            
+
                             if stats_inferred % 10 == 0:
-                                logger.debug("Inferred %d workspaces from file context", stats_inferred)
-                
+                                logger.debug(
+                                    "Inferred %d workspaces from file context",
+                                    stats_inferred,
+                                )
+
                 # Get composer head for title enrichment
                 composer_head = composer_heads.get(composer_id)
-                
+
                 # Convert to domain model
-                chat = self._convert_composer_to_chat(composer_data, workspace_id, composer_head)
+                chat = self._convert_composer_to_chat(
+                    composer_data, workspace_id, composer_head
+                )
                 if not chat:
                     stats["skipped"] += 1
                     continue
-                
+
                 # Skip empty chats (no messages)
                 if not chat.messages:
                     stats["skipped"] += 1
                     continue
-                
+
                 # Store in database
                 # Check if this is actually an update or a new chat
                 cursor = self.db.conn.cursor()
-                cursor.execute("SELECT id FROM chats WHERE cursor_composer_id = ?", (chat.cursor_composer_id,))
+                cursor.execute(
+                    "SELECT id FROM chats WHERE cursor_composer_id = ?",
+                    (chat.cursor_composer_id,),
+                )
                 existing_chat = cursor.fetchone()
                 is_new = existing_chat is None
-                
+
                 self.db.upsert_chat(chat)
-                
+
                 if is_new:
                     stats["ingested"] += 1
                     stats["new"] += 1
                 else:
                     stats["ingested"] += 1
                     stats["updated"] += 1
-                
+
                 processed_count += 1
-                
+
                 # Track last processed timestamp
                 if chat.last_updated_at:
-                    if not last_processed_timestamp or chat.last_updated_at > last_processed_timestamp:
+                    if (
+                        not last_processed_timestamp
+                        or chat.last_updated_at > last_processed_timestamp
+                    ):
                         last_processed_timestamp = chat.last_updated_at
                         last_composer_id = composer_id
                 elif chat.created_at:
-                    if not last_processed_timestamp or chat.created_at > last_processed_timestamp:
+                    if (
+                        not last_processed_timestamp
+                        or chat.created_at > last_processed_timestamp
+                    ):
                         last_processed_timestamp = chat.created_at
                         last_composer_id = composer_id
-                
+
                 if processed_count % 100 == 0:
                     logger.info("Processed %d composers...", processed_count)
-                    
+
             except Exception as e:
                 logger.error("Error processing composer %s: %s", composer_id, e)
                 stats["errors"] += 1
-        
+
         # Update ingestion state
         self.db.update_ingestion_state(
             source=source,
             last_run_at=start_time,
-            last_processed_timestamp=last_processed_timestamp.isoformat() if last_processed_timestamp else None,
+            last_processed_timestamp=last_processed_timestamp.isoformat()
+            if last_processed_timestamp
+            else None,
             last_composer_id=last_composer_id,
-            stats=stats
+            stats=stats,
         )
-        
+
         if incremental:
-            logger.info("Incremental ingestion complete: %d ingested (%d new, %d updated), %d skipped, %d errors, %d workspaces inferred", 
-                       stats["ingested"], stats.get("new", 0), stats.get("updated", 0), 
-                       stats["skipped"], stats["errors"], stats["inferred_workspaces"])
+            logger.info(
+                "Incremental ingestion complete: %d ingested (%d new, %d updated), %d skipped, %d errors, %d workspaces inferred",
+                stats["ingested"],
+                stats.get("new", 0),
+                stats.get("updated", 0),
+                stats["skipped"],
+                stats["errors"],
+                stats["inferred_workspaces"],
+            )
         else:
-            logger.info("Ingestion complete: %d ingested, %d skipped, %d errors, %d workspaces inferred", 
-                       stats["ingested"], stats["skipped"], stats["errors"], stats["inferred_workspaces"])
-        
+            logger.info(
+                "Ingestion complete: %d ingested, %d skipped, %d errors, %d workspaces inferred",
+                stats["ingested"],
+                stats["skipped"],
+                stats["errors"],
+                stats["inferred_workspaces"],
+            )
+
         # Ingest plans after chats are ingested (plans link to chats)
         logger.info("Ingesting plans...")
         plan_stats = self.ingest_plans()
-        logger.info("Plan ingestion complete: %d plans ingested", plan_stats.get("ingested", 0))
-        
+        logger.info(
+            "Plan ingestion complete: %d plans ingested", plan_stats.get("ingested", 0)
+        )
+
         return stats
 
     def ingest_plans(self) -> Dict[str, int]:
@@ -903,7 +992,9 @@ class ChatAggregator:
                     stats["ingested"] += 1
 
                 except Exception as e:
-                    logger.error("Error ingesting plan %s: %s", plan_data.get("plan_id"), e)
+                    logger.error(
+                        "Error ingesting plan %s: %s", plan_data.get("plan_id"), e
+                    )
                     stats["errors"] += 1
 
         except Exception as e:
@@ -911,16 +1002,18 @@ class ChatAggregator:
             stats["errors"] += 1
 
         return stats
-    
-    def _convert_claude_to_chat(self, conversation_data: Dict[str, Any]) -> Optional[Chat]:
+
+    def _convert_claude_to_chat(
+        self, conversation_data: Dict[str, Any]
+    ) -> Optional[Chat]:
         """
         Convert Claude.ai conversation data to Chat domain model.
-        
+
         Parameters
         ----
         conversation_data : Dict[str, Any]
             Raw conversation data from Claude.ai API
-            
+
         Returns
         ----
         Chat
@@ -929,36 +1022,40 @@ class ChatAggregator:
         conv_id = conversation_data.get("uuid")
         if not conv_id:
             return None
-        
+
         # Extract title
-        title = conversation_data.get("name") or conversation_data.get("summary") or "Untitled Chat"
-        
+        title = (
+            conversation_data.get("name")
+            or conversation_data.get("summary")
+            or "Untitled Chat"
+        )
+
         # Extract timestamps
         created_at = None
         if conversation_data.get("created_at"):
             try:
                 # Parse ISO format timestamp
                 created_at_str = conversation_data["created_at"]
-                if created_at_str.endswith('Z'):
-                    created_at_str = created_at_str[:-1] + '+00:00'
+                if created_at_str.endswith("Z"):
+                    created_at_str = created_at_str[:-1] + "+00:00"
                 created_at = datetime.fromisoformat(created_at_str)
             except (ValueError, TypeError) as e:
                 logger.debug("Could not parse created_at: %s", e)
-        
+
         last_updated_at = None
         if conversation_data.get("updated_at"):
             try:
                 updated_at_str = conversation_data["updated_at"]
-                if updated_at_str.endswith('Z'):
-                    updated_at_str = updated_at_str[:-1] + '+00:00'
+                if updated_at_str.endswith("Z"):
+                    updated_at_str = updated_at_str[:-1] + "+00:00"
                 last_updated_at = datetime.fromisoformat(updated_at_str)
             except (ValueError, TypeError) as e:
                 logger.debug("Could not parse updated_at: %s", e)
-        
+
         # Extract messages
         messages = []
         chat_messages = conversation_data.get("chat_messages", [])
-        
+
         for msg_data in chat_messages:
             # Map sender to role
             sender = msg_data.get("sender", "")
@@ -969,12 +1066,12 @@ class ChatAggregator:
             else:
                 # Skip unknown sender types
                 continue
-            
+
             # Extract text content
             text = ""
             rich_text = ""
             content = msg_data.get("content", [])
-            
+
             # Claude stores content as array of content blocks
             for content_block in content:
                 if content_block.get("type") == "text":
@@ -984,26 +1081,26 @@ class ChatAggregator:
                             text += "\n\n" + block_text
                         else:
                             text = block_text
-            
+
             # If no text content, check for other content types
             if not text:
                 # Check if there's a text field directly on the message
                 text = msg_data.get("text", "")
-            
+
             # Extract timestamp
             msg_created_at = None
             if msg_data.get("created_at"):
                 try:
                     created_at_str = msg_data["created_at"]
-                    if created_at_str.endswith('Z'):
-                        created_at_str = created_at_str[:-1] + '+00:00'
+                    if created_at_str.endswith("Z"):
+                        created_at_str = created_at_str[:-1] + "+00:00"
                     msg_created_at = datetime.fromisoformat(created_at_str)
                 except (ValueError, TypeError):
                     pass
-            
+
             # Classify message type
             message_type = MessageType.RESPONSE if text else MessageType.EMPTY
-            
+
             message = Message(
                 role=role,
                 text=text,
@@ -1014,11 +1111,11 @@ class ChatAggregator:
                 message_type=message_type,
             )
             messages.append(message)
-        
+
         # Extract model (store in mode field for now, could add separate field later)
         model = conversation_data.get("model")
         mode = ChatMode.CHAT  # Claude conversations are always chat mode
-        
+
         # Create chat
         chat = Chat(
             cursor_composer_id=conv_id,  # Reuse this field for Claude conversation ID
@@ -1031,18 +1128,20 @@ class ChatAggregator:
             messages=messages,
             relevant_files=[],  # Claude API doesn't expose relevant files in this format
         )
-        
+
         return chat
-    
-    def _parse_claude_timestamp(self, timestamp_str: Optional[str]) -> Optional[datetime]:
+
+    def _parse_claude_timestamp(
+        self, timestamp_str: Optional[str]
+    ) -> Optional[datetime]:
         """
         Parse Claude.ai timestamp string to datetime.
-        
+
         Parameters
         ----
         timestamp_str : str, optional
             ISO format timestamp string (may end with 'Z')
-            
+
         Returns
         ----
         datetime, optional
@@ -1051,28 +1150,28 @@ class ChatAggregator:
         if not timestamp_str:
             return None
         try:
-            if timestamp_str.endswith('Z'):
-                timestamp_str = timestamp_str[:-1] + '+00:00'
+            if timestamp_str.endswith("Z"):
+                timestamp_str = timestamp_str[:-1] + "+00:00"
             return datetime.fromisoformat(timestamp_str)
         except (ValueError, TypeError):
             return None
-    
+
     def _ingest_web_source(
         self,
         config: WebSourceConfig,
         progress_callback: Optional[Callable] = None,
-        incremental: bool = False
+        incremental: bool = False,
     ) -> Dict[str, int]:
         """
         Generic ingestion for web-based conversation sources.
-        
+
         Template method that handles common ingestion flow:
         1. Initialize reader
         2. Fetch conversation list
         3. Filter for incremental (if enabled)
         4. Fetch details and convert
         5. Store in database
-        
+
         Parameters
         ----
         config : WebSourceConfig
@@ -1081,31 +1180,39 @@ class ChatAggregator:
             Progress callback(conv_id, total, current)
         incremental : bool
             Only fetch new/updated conversations
-            
+
         Returns
         ----
         Dict[str, int]
             Statistics: {ingested, skipped, errors}
         """
-        logger.info("Starting %s chat ingestion%s...", config.name, " (incremental)" if incremental else "")
-        
+        logger.info(
+            "Starting %s chat ingestion%s...",
+            config.name,
+            " (incremental)" if incremental else "",
+        )
+
         try:
             reader = config.reader_class()
         except ValueError as e:
-            logger.error("%s reader initialization failed: %s", config.name.capitalize(), e)
+            logger.error(
+                "%s reader initialization failed: %s", config.name.capitalize(), e
+            )
             if config.name == "claude":
                 logger.error("Please configure CLAUDE_ORG_ID and CLAUDE_SESSION_COOKIE")
             elif config.name == "chatgpt":
                 logger.error("Please configure CHATGPT_SESSION_TOKEN")
             return {"ingested": 0, "skipped": 0, "errors": 1}
-        
+
         stats = {"ingested": 0, "skipped": 0, "errors": 0}
-        
+
         try:
             # Step 1: Get conversation list
             conversation_list = reader.get_conversation_list()
-            logger.info("Found %d %s conversations", len(conversation_list), config.name)
-            
+            logger.info(
+                "Found %d %s conversations", len(conversation_list), config.name
+            )
+
             # Step 2: Filter if incremental
             conversations_to_fetch = []
             if incremental:
@@ -1113,17 +1220,21 @@ class ChatAggregator:
                     conv_id = conv_meta.get(config.id_field)
                     if not conv_id:
                         continue
-                    
-                    api_updated_at = config.timestamp_parser(conv_meta.get(config.updated_field))
-                    
+
+                    api_updated_at = config.timestamp_parser(
+                        conv_meta.get(config.updated_field)
+                    )
+
                     # Check if we have this conversation and when it was last updated
                     db_chat = self.db.get_chat_by_composer_id(conv_id)
-                    
+
                     if db_chat is None:
                         # New conversation
                         conversations_to_fetch.append(conv_meta)
                     elif api_updated_at and db_chat.get("last_updated_at"):
-                        db_updated_at = datetime.fromisoformat(db_chat["last_updated_at"])
+                        db_updated_at = datetime.fromisoformat(
+                            db_chat["last_updated_at"]
+                        )
                         if api_updated_at > db_updated_at:
                             # Updated since we last stored it
                             conversations_to_fetch.append(conv_meta)
@@ -1132,75 +1243,94 @@ class ChatAggregator:
                     else:
                         # Can't compare timestamps, fetch to be safe
                         conversations_to_fetch.append(conv_meta)
-                
-                logger.info("Incremental: %d new/updated, %d unchanged",
-                           len(conversations_to_fetch), stats["skipped"])
+
+                logger.info(
+                    "Incremental: %d new/updated, %d unchanged",
+                    len(conversations_to_fetch),
+                    stats["skipped"],
+                )
             else:
                 conversations_to_fetch = conversation_list
-            
+
             total = len(conversations_to_fetch)
             logger.info("Processing %d conversations...", total)
-            
+
             # Step 3: Fetch details only for filtered conversations
             for idx, conv_meta in enumerate(conversations_to_fetch, 1):
                 conv_id = conv_meta.get(config.id_field, f"unknown-{idx}")
-                
+
                 if progress_callback and total:
                     progress_callback(conv_id, total, idx)
-                
+
                 try:
                     # Fetch full conversation details
                     full_conv = reader._fetch_conversation_detail(conv_id)
                     if not full_conv:
                         stats["skipped"] += 1
                         continue
-                    
+
                     # Merge metadata with full details
                     full_conv.update(conv_meta)
-                    
+
                     # Convert to domain model
                     chat = config.converter(full_conv)
                     if not chat:
                         stats["skipped"] += 1
                         continue
-                    
+
                     # Skip empty chats (no messages)
                     if not chat.messages:
                         stats["skipped"] += 1
                         continue
-                    
+
                     # Store in database
                     self.db.upsert_chat(chat)
                     stats["ingested"] += 1
-                    
+
                     if idx % 50 == 0:
-                        logger.info("Processed %d/%d %s conversations...", idx, total, config.name)
-                        
+                        logger.info(
+                            "Processed %d/%d %s conversations...",
+                            idx,
+                            total,
+                            config.name,
+                        )
+
                 except Exception as e:
-                    logger.error("Error processing %s conversation %s: %s", config.name, conv_id, e)
+                    logger.error(
+                        "Error processing %s conversation %s: %s",
+                        config.name,
+                        conv_id,
+                        e,
+                    )
                     stats["errors"] += 1
-            
-            logger.info("%s ingestion complete: %d ingested, %d skipped, %d errors",
-                       config.name.capitalize(), stats["ingested"], stats["skipped"], stats["errors"])
-            
+
+            logger.info(
+                "%s ingestion complete: %d ingested, %d skipped, %d errors",
+                config.name.capitalize(),
+                stats["ingested"],
+                stats["skipped"],
+                stats["errors"],
+            )
+
         except Exception as e:
             logger.error("Error during %s ingestion: %s", config.name, e)
             stats["errors"] += 1
-        
+
         return stats
-    
-    def ingest_claude(self, progress_callback: Optional[callable] = None,
-                      incremental: bool = False) -> Dict[str, int]:
+
+    def ingest_claude(
+        self, progress_callback: Optional[callable] = None, incremental: bool = False
+    ) -> Dict[str, int]:
         """
         Ingest chats from Claude.ai.
-        
+
         Parameters
         ----
         progress_callback : callable, optional
             Callback function(conversation_id, total, current) for progress updates
         incremental : bool
             If True, only fetch details for conversations that are new or updated
-            
+
         Returns
         ----
         Dict[str, int]
@@ -1212,23 +1342,23 @@ class ChatAggregator:
             id_field="uuid",
             updated_field="updated_at",
             converter=self._convert_claude_to_chat,
-            timestamp_parser=self._parse_claude_timestamp
+            timestamp_parser=self._parse_claude_timestamp,
         )
         return self._ingest_web_source(config, progress_callback, incremental)
-    
+
     def _parse_chatgpt_timestamp(self, timestamp: Optional[Any]) -> Optional[datetime]:
         """
         Parse ChatGPT timestamp (supports both Unix epoch and ISO strings).
-        
+
         ChatGPT API returns timestamps in two formats:
         - Unix epoch: 1766681665.991872 (float)
         - ISO string: "2025-12-30T22:12:41.767145Z"
-        
+
         Parameters
         ----
         timestamp : float, str, or None
             Timestamp value from ChatGPT API
-            
+
         Returns
         ----
         datetime or None
@@ -1236,36 +1366,38 @@ class ChatAggregator:
         """
         if timestamp is None:
             return None
-        
+
         try:
             if isinstance(timestamp, (int, float)):
                 # Unix epoch timestamp
                 return datetime.fromtimestamp(float(timestamp))
             elif isinstance(timestamp, str):
                 # ISO format string
-                if timestamp.endswith('Z'):
-                    timestamp = timestamp[:-1] + '+00:00'
+                if timestamp.endswith("Z"):
+                    timestamp = timestamp[:-1] + "+00:00"
                 return datetime.fromisoformat(timestamp)
         except (ValueError, TypeError, OSError) as e:
             logger.debug("Could not parse ChatGPT timestamp %s: %s", timestamp, e)
-        
+
         return None
-    
-    def _convert_chatgpt_to_chat(self, conversation_data: Dict[str, Any]) -> Optional[Chat]:
+
+    def _convert_chatgpt_to_chat(
+        self, conversation_data: Dict[str, Any]
+    ) -> Optional[Chat]:
         """
         Convert ChatGPT conversation data to Chat domain model.
-        
+
         Key differences from Claude:
         - Uses "id" instead of "uuid"
         - Timestamps can be Unix epoch or ISO strings
         - Messages already flattened by ChatGPTReader
         - Sender is "user"/"assistant" vs "human"/"assistant"
-        
+
         Parameters
         ----
         conversation_data : Dict[str, Any]
             Raw conversation from ChatGPT API (includes chat_messages from reader)
-            
+
         Returns
         ----
         Chat or None
@@ -1274,25 +1406,25 @@ class ChatAggregator:
         conv_id = conversation_data.get("id")
         if not conv_id:
             return None
-        
+
         # Extract title
         title = conversation_data.get("title", "Untitled Chat")
-        
+
         # Extract timestamps (ChatGPT uses both Unix epoch and ISO strings)
         created_at = None
         create_time = conversation_data.get("create_time")
         if create_time:
             created_at = self._parse_chatgpt_timestamp(create_time)
-        
+
         last_updated_at = None
         update_time = conversation_data.get("update_time")
         if update_time:
             last_updated_at = self._parse_chatgpt_timestamp(update_time)
-        
+
         # Extract messages (already flattened by ChatGPTReader)
         messages = []
         chat_messages = conversation_data.get("chat_messages", [])
-        
+
         for msg_data in chat_messages:
             # Map sender to role
             sender = msg_data.get("sender", "")
@@ -1303,7 +1435,7 @@ class ChatAggregator:
             else:
                 # Skip system messages and unknown types
                 continue
-            
+
             # Extract text from content array
             text_parts = []
             content_items = msg_data.get("content", [])
@@ -1312,17 +1444,17 @@ class ChatAggregator:
                     text_parts.append(item.get("text", ""))
                 elif isinstance(item, str):
                     text_parts.append(item)
-            
+
             text = "\n".join(text_parts) if text_parts else ""
-            
+
             # Extract timestamp
             msg_created_at = None
             if msg_data.get("created_at"):
                 msg_created_at = self._parse_chatgpt_timestamp(msg_data["created_at"])
-            
+
             # Classify message type
             message_type = MessageType.RESPONSE if text else MessageType.EMPTY
-            
+
             message = Message(
                 role=role,
                 text=text,
@@ -1333,10 +1465,10 @@ class ChatAggregator:
                 message_type=message_type,
             )
             messages.append(message)
-        
+
         # ChatGPT conversations are always chat mode
         mode = ChatMode.CHAT
-        
+
         # Create chat
         chat = Chat(
             cursor_composer_id=conv_id,  # Reuse this field for ChatGPT conversation ID
@@ -1349,21 +1481,22 @@ class ChatAggregator:
             messages=messages,
             relevant_files=[],  # ChatGPT API doesn't expose relevant files in this format
         )
-        
+
         return chat
-    
-    def ingest_chatgpt(self, progress_callback: Optional[callable] = None,
-                       incremental: bool = False) -> Dict[str, int]:
+
+    def ingest_chatgpt(
+        self, progress_callback: Optional[callable] = None, incremental: bool = False
+    ) -> Dict[str, int]:
         """
         Ingest chats from ChatGPT.
-        
+
         Parameters
         ----
         progress_callback : callable, optional
             Callback function(conversation_id, total, current) for progress updates
         incremental : bool
             If True, only fetch details for conversations that are new or updated
-            
+
         Returns
         ----
         Dict[str, int]
@@ -1375,7 +1508,6 @@ class ChatAggregator:
             id_field="id",
             updated_field="update_time",
             converter=self._convert_chatgpt_to_chat,
-            timestamp_parser=self._parse_chatgpt_timestamp
+            timestamp_parser=self._parse_chatgpt_timestamp,
         )
         return self._ingest_web_source(config, progress_callback, incremental)
-

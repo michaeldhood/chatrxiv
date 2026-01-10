@@ -268,9 +268,7 @@ class ChatDatabase:
         cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_workspaces_project ON workspaces(project_id)"
         )
-        cursor.execute(
-            "CREATE INDEX IF NOT EXISTS idx_plans_plan_id ON plans(plan_id)"
-        )
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_plans_plan_id ON plans(plan_id)")
         cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_chat_plans_chat ON chat_plans(chat_id)"
         )
@@ -1544,9 +1542,7 @@ class ChatDatabase:
         cursor.execute("SELECT id FROM plans WHERE plan_id = ?", (plan_id,))
         return cursor.fetchone()[0]
 
-    def link_chat_to_plan(
-        self, chat_id: int, plan_id: int, relationship: str
-    ) -> None:
+    def link_chat_to_plan(self, chat_id: int, plan_id: int, relationship: str) -> None:
         """
         Link a chat to a plan with a specific relationship.
 

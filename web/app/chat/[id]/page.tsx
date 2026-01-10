@@ -260,6 +260,11 @@ export default function ChatDetailPage() {
                 {chat.mode}
               </span>
             )}
+            {chat.plans && chat.plans.length > 0 && (
+              <span className="text-xs px-[10px] py-1 rounded-full uppercase font-semibold bg-accent-purple/20 text-accent-purple">
+                📋 {chat.plans.filter(p => p.relationship === 'created').length > 0 ? 'Created Plan' : 'Linked Plan'}
+              </span>
+            )}
             {chat.created_at && (
               <span>
                 Created: {formatDistanceToNow(new Date(chat.created_at), { addSuffix: true })}
