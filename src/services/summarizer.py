@@ -4,9 +4,10 @@ Chat summarization service using Claude API.
 Generates structured markdown summaries of chat sessions, adapting the
 summarize-session command prompt for automated processing.
 """
-import os
+
 import logging
-from typing import List, Dict, Any, Optional
+import os
+from typing import Any, Dict, List, Optional
 
 try:
     from anthropic import Anthropic
@@ -77,7 +78,9 @@ class ChatSummarizer:
         conversation_text = self._format_conversation(messages)
 
         # Build prompt
-        prompt = self._build_prompt(chat_title, conversation_text, workspace_path, created_at)
+        prompt = self._build_prompt(
+            chat_title, conversation_text, workspace_path, created_at
+        )
 
         try:
             response = self.client.messages.create(
@@ -177,7 +180,9 @@ class ChatSummarizer:
         if chat_title:
             context_parts.append(f"**Title**: {chat_title}")
 
-        context_section = "\n".join(context_parts) if context_parts else "No additional context"
+        context_section = (
+            "\n".join(context_parts) if context_parts else "No additional context"
+        )
 
         prompt = f"""Review the following chat conversation and generate a comprehensive markdown summary.
 

@@ -35,14 +35,14 @@ export function PlanContent({ plan }: PlanContentProps) {
   };
 
   return (
-    <div className="mb-5 rounded-xl bg-card border border-accent-purple/30">
+    <div className="mb-5 rounded-xl bg-accent-purple/5 border-2 border-accent-purple/40 shadow-sm">
       {/* Header */}
-      <div className="px-[18px] pt-[14px] pb-2 flex items-center gap-[10px] text-xs font-semibold uppercase tracking-wide text-accent-purple">
+      <div className="px-[18px] pt-[14px] pb-3 flex items-center gap-[10px] text-xs font-semibold uppercase tracking-wide text-accent-purple bg-accent-purple/10 rounded-t-xl border-b border-accent-purple/20">
         <span>📋 Plan</span>
         <span className="font-normal normal-case">{plan.name}</span>
       </div>
 
-      <div className="px-[18px] pb-[18px] text-[15px] leading-relaxed text-foreground">
+      <div className="px-[18px] pb-[18px] pt-3 text-[15px] leading-relaxed text-foreground">
         {/* Overview */}
         {plan.overview && (
           <div className="mb-4 text-muted-foreground">
@@ -82,7 +82,7 @@ export function PlanContent({ plan }: PlanContentProps) {
               <span>{showFullContent ? 'Hide' : 'Show'} full plan content</span>
             </button>
             {showFullContent && (
-              <div className="mt-2 border-t border-border/50 pt-4">
+              <div className="mt-2 border-t border-accent-purple/20 pt-4">
                 <Markdown content={plan.content} />
               </div>
             )}

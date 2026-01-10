@@ -5,7 +5,6 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { fetchChat, summarizeChat, type ChatDetail, type Message } from '@/lib/api';
 import { Message as MessageComponent } from '@/components/message';
-import { PlanCreatedIndicator } from '@/components/plan-created-indicator';
 import { PlanContent } from '@/components/plan-content';
 import { ToolResult } from '@/components/tool-result';
 import { Markdown } from '@/components/markdown';
@@ -542,10 +541,6 @@ export default function ChatDetailPage() {
                         </div>
                       )}
                     </div>
-                  );
-                } else if (item.type === 'plan_created' && item.plan) {
-                  return (
-                    <PlanCreatedIndicator key={`plan-${index}`} plan={item.plan} />
                   );
                 } else if (item.type === 'message' && item.data) {
                   const isUserMsg = item.data.role === 'user';

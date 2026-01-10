@@ -4,15 +4,17 @@ Domain models for chat aggregation.
 These models represent the normalized structure of chats, messages, and workspaces
 independent of Cursor's internal storage format.
 """
+
+import json
 from dataclasses import dataclass
 from datetime import datetime
-from typing import List, Optional, Dict, Any
 from enum import Enum
-import json
+from typing import Any, Dict, List, Optional
 
 
 class ChatMode(str, Enum):
     """Chat mode types from Cursor."""
+
     CHAT = "chat"
     EDIT = "edit"
     AGENT = "agent"
@@ -24,6 +26,7 @@ class ChatMode(str, Enum):
 
 class MessageRole(str, Enum):
     """Message role types."""
+
     USER = "user"
     ASSISTANT = "assistant"
     SYSTEM = "system"
@@ -31,15 +34,17 @@ class MessageRole(str, Enum):
 
 class MessageType(str, Enum):
     """Message content type classification."""
-    RESPONSE = "response"      # Actual text content
-    TOOL_CALL = "tool_call"    # Tool invocation (empty text)
-    THINKING = "thinking"      # Reasoning trace
-    EMPTY = "empty"            # Unknown empty bubble
+
+    RESPONSE = "response"  # Actual text content
+    TOOL_CALL = "tool_call"  # Tool invocation (empty text)
+    THINKING = "thinking"  # Reasoning trace
+    EMPTY = "empty"  # Unknown empty bubble
 
 
 @dataclass
 class Workspace:
     """Represents a Cursor workspace."""
+
     id: Optional[int] = None
     workspace_hash: str = ""
     folder_uri: str = ""
@@ -53,14 +58,19 @@ class Workspace:
             "workspace_hash": self.workspace_hash,
             "folder_uri": self.folder_uri,
             "resolved_path": self.resolved_path,
-            "first_seen_at": self.first_seen_at.isoformat() if self.first_seen_at else None,
-            "last_seen_at": self.last_seen_at.isoformat() if self.last_seen_at else None,
+            "first_seen_at": self.first_seen_at.isoformat()
+            if self.first_seen_at
+            else None,
+            "last_seen_at": self.last_seen_at.isoformat()
+            if self.last_seen_at
+            else None,
         }
 
 
 @dataclass
 class Message:
     """Represents a single message in a chat."""
+
     id: Optional[int] = None
     chat_id: Optional[int] = None
     role: MessageRole = MessageRole.USER
@@ -88,6 +98,7 @@ class Message:
 @dataclass
 class Chat:
     """Represents a complete chat conversation."""
+
     id: Optional[int] = None
     cursor_composer_id: str = ""
     workspace_id: Optional[int] = None
@@ -115,7 +126,8 @@ class Chat:
             "title": self.title,
             "mode": self.mode.value,
             "created_at": self.created_at.isoformat() if self.created_at else None,
-            "last_updated_at": self.last_updated_at.isoformat() if self.last_updated_at else None,
+            "last_updated_at": self.last_updated_at.isoformat()
+            if self.last_updated_at
+            else None,
             "source": self.source,
         }
-

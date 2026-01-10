@@ -160,8 +160,11 @@ def extract_plan_content(raw_json: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         Plan content dict with name, overview, content, todos, uri, status
         or None if not a create_plan tool call
     """
+    if not raw_json:
+        return None
+    
     tool_former = raw_json.get("toolFormerData", {})
-    if tool_former.get("name") != "create_plan":
+    if not tool_former or tool_former.get("name") != "create_plan":
         return None
 
     # Parse rawArgs or params (both contain the plan)
@@ -364,7 +367,7 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
             msg["tool_description"] = classification["tool_description"]
 
             # Extract plan content if this is a create_plan tool call
-            raw_json = msg.get("raw_json", {})
+            raw_json = msg.get("raw_json") or {}
             plan_content = extract_plan_content(raw_json)
             if plan_content:
                 msg["plan_content"] = plan_content
@@ -565,6 +568,7 @@ def summarize_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
 
     # Check if API key is configured
     import os
+
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
         raise HTTPException(
