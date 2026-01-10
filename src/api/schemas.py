@@ -47,6 +47,17 @@ class PlanInfo(BaseModel):
     relationship: str  # 'created', 'edited', or 'referenced'
 
 
+class PlanContent(BaseModel):
+    """Plan content extracted from create_plan tool call."""
+
+    name: str
+    overview: Optional[str] = None
+    content: Optional[str] = None  # Full markdown
+    todos: List[Dict[str, Any]] = Field(default_factory=list)
+    uri: Optional[str] = None
+    status: Optional[str] = None
+
+
 class ChatDetail(BaseModel):
     """Full chat with all messages."""
 

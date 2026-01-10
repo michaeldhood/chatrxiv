@@ -18,6 +18,15 @@ export interface ChatSummary {
   tags: string[];
 }
 
+export interface PlanContent {
+  name: string;
+  overview?: string;
+  content?: string; // Full markdown
+  todos: Array<{ id?: string; content: string; status?: string }>;
+  uri?: string;
+  status?: string;
+}
+
 export interface Message {
   role: string;
   text?: string | null;
@@ -29,6 +38,7 @@ export interface Message {
   tool_name?: string;
   tool_description?: string;
   is_thinking?: boolean;
+  plan_content?: PlanContent;
 }
 
 export interface ProcessedMessage {

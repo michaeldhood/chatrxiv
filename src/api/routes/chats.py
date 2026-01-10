@@ -2,6 +2,7 @@
 Chats API routes.
 """
 
+import json
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -143,6 +144,56 @@ def classify_tool_call(msg: Dict[str, Any]) -> Dict[str, str]:
     }
 
 
+def extract_plan_content(raw_json: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    Extract plan content from create_plan tool call bubble.
+
+    Parameters
+    ----
+    raw_json : Dict[str, Any]
+        Raw JSON data from message bubble
+
+    Returns
+    ----
+    Optional[Dict[str, Any]]
+        Plan content dict with name, overview, content, todos, uri, status
+        or None if not a create_plan tool call
+    """
+    tool_former = raw_json.get("toolFormerData", {})
+    if tool_former.get("name") != "create_plan":
+        return None
+
+    # Parse rawArgs or params (both contain the plan)
+    raw_args = tool_former.get("rawArgs", "{}")
+    if isinstance(raw_args, str):
+        try:
+            raw_args = json.loads(raw_args)
+        except (json.JSONDecodeError, TypeError):
+            raw_args = {}
+
+    # Fallback to params if rawArgs parsing failed
+    if not raw_args:
+        params = tool_former.get("params", "{}")
+        if isinstance(params, str):
+            try:
+                raw_args = json.loads(params)
+            except (json.JSONDecodeError, TypeError):
+                raw_args = {}
+        else:
+            raw_args = params or {}
+
+    additional = tool_former.get("additionalData", {})
+
+    return {
+        "name": raw_args.get("name") or additional.get("pinnedName") or "Untitled Plan",
+        "overview": raw_args.get("overview"),
+        "content": raw_args.get("plan"),  # Full markdown
+        "todos": raw_args.get("todos", []),
+        "uri": additional.get("planUri"),
+        "status": tool_former.get("status"),  # completed, etc.
+    }
+
+
 def build_tool_group_summary(
     tool_calls: List[Dict[str, Any]],
 ) -> Tuple[List[str], Optional[str]]:
@@ -239,7 +290,7 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
     # Get plans linked to this chat
     plans_data = db.get_plans_for_chat(chat_id)
     chat["plans"] = [PlanInfo(**plan) for plan in plans_data]
-    
+
     # Build map of plan file paths to plan info for quick lookup
     plans_by_file_path = {}
     created_plans = [p for p in plans_data if p.get("relationship") == "created"]
@@ -268,6 +319,12 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
             msg["tool_name"] = classification["tool_name"]
             msg["tool_description"] = classification["tool_description"]
 
+            # Extract plan content if this is a create_plan tool call
+            raw_json = msg.get("raw_json", {})
+            plan_content = extract_plan_content(raw_json)
+            if plan_content:
+                msg["plan_content"] = plan_content
+
             tool_call_group.append(msg)
         else:
             # If we have accumulated tool calls, add them as a group
@@ -281,7 +338,7 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
                         "summary": summary,
                     }
                 )
-                
+
                 # Check if this tool call group created any plans
                 # Look for file write operations that match plan file paths
                 for tool_msg in tool_call_group:
@@ -289,10 +346,12 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
                     tool_desc = tool_msg.get("tool_description", "")
                     # Also check raw_json for actual file path in parameters
                     raw_json = tool_msg.get("raw_json", {})
-                    tool_calls = raw_json.get("toolCalls") or raw_json.get("toolCall") or []
+                    tool_calls = (
+                        raw_json.get("toolCalls") or raw_json.get("toolCall") or []
+                    )
                     if isinstance(tool_calls, dict):
                         tool_calls = [tool_calls]
-                    
+
                     # Extract file paths from tool call parameters
                     file_paths_to_check = [tool_desc] if tool_desc else []
                     for tc in tool_calls:
@@ -302,16 +361,21 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
                                 path = params.get("path", "") or params.get("file", "")
                                 if path:
                                     file_paths_to_check.append(path)
-                    
+
                     # Check if any path matches a plan file
                     for file_path in file_paths_to_check:
                         if file_path and ".plan.md" in file_path:
                             # Check if this path matches any created plan
-                            for plan_file_path, plan_info in list(plans_by_file_path.items()):
+                            for plan_file_path, plan_info in list(
+                                plans_by_file_path.items()
+                            ):
                                 # Match if plan path is in tool path or vice versa
-                                if (plan_file_path and 
-                                    (plan_file_path in file_path or file_path in plan_file_path or
-                                     plan_file_path.endswith(file_path) or file_path.endswith(plan_file_path))):
+                                if plan_file_path and (
+                                    plan_file_path in file_path
+                                    or file_path in plan_file_path
+                                    or plan_file_path.endswith(file_path)
+                                    or file_path.endswith(plan_file_path)
+                                ):
                                     # Insert plan creation indicator after this tool group
                                     processed_messages.append(
                                         {
@@ -321,14 +385,16 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
                                                 "plan_id": plan_info["plan_id"],
                                                 "name": plan_info["name"],
                                                 "file_path": plan_info.get("file_path"),
-                                                "created_at": plan_info.get("created_at"),
+                                                "created_at": plan_info.get(
+                                                    "created_at"
+                                                ),
                                             },
                                         }
                                     )
                                     # Remove from map to avoid duplicate indicators
                                     del plans_by_file_path[plan_file_path]
                                     break
-                
+
                 tool_call_group = []
 
             # Check if this is a thinking message
@@ -349,7 +415,7 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
                 "summary": summary,
             }
         )
-        
+
         # Check if this final tool call group created any plans
         for tool_msg in tool_call_group:
             # Check tool_description (from classification)
@@ -359,7 +425,7 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
             tool_calls = raw_json.get("toolCalls") or raw_json.get("toolCall") or []
             if isinstance(tool_calls, dict):
                 tool_calls = [tool_calls]
-            
+
             # Extract file paths from tool call parameters
             file_paths_to_check = [tool_desc] if tool_desc else []
             for tc in tool_calls:
@@ -369,15 +435,18 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
                         path = params.get("path", "") or params.get("file", "")
                         if path:
                             file_paths_to_check.append(path)
-            
+
             # Check if any path matches a plan file
             for file_path in file_paths_to_check:
                 if file_path and ".plan.md" in file_path:
                     for plan_file_path, plan_info in list(plans_by_file_path.items()):
                         # Match if plan path is in tool path or vice versa
-                        if (plan_file_path and 
-                            (plan_file_path in file_path or file_path in plan_file_path or
-                             plan_file_path.endswith(file_path) or file_path.endswith(plan_file_path))):
+                        if plan_file_path and (
+                            plan_file_path in file_path
+                            or file_path in plan_file_path
+                            or plan_file_path.endswith(file_path)
+                            or file_path.endswith(plan_file_path)
+                        ):
                             processed_messages.append(
                                 {
                                     "type": "plan_created",
@@ -392,7 +461,7 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
                             )
                             del plans_by_file_path[plan_file_path]
                             break
-    
+
     # If any plans weren't matched to tool calls, add indicators after first message as fallback
     if plans_by_file_path and processed_messages:
         for plan_info in plans_by_file_path.values():

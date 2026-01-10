@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { fetchChat, type ChatDetail, type Message } from '@/lib/api';
 import { Message as MessageComponent } from '@/components/message';
 import { PlanCreatedIndicator } from '@/components/plan-created-indicator';
+import { PlanContent } from '@/components/plan-content';
 import { Markdown } from '@/components/markdown';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -429,27 +430,30 @@ export default function ChatDetailPage() {
                       {isExpanded && (
                         <div className="px-4 py-4 border-t border-border space-y-2">
                           {item.tool_calls.map((toolMsg: any, toolIdx: number) => (
-                            <div
-                              key={toolIdx}
-                              className="p-3 bg-card rounded-md border border-border text-sm text-muted-foreground"
-                            >
-                              <strong className="text-accent-purple font-semibold">
-                                {toolMsg.tool_name || (toolMsg.role?.charAt(0).toUpperCase() + toolMsg.role?.slice(1) || 'Tool')}
-                              </strong>
-                              {toolMsg.tool_description && (
-                                <div className="mt-1 text-xs text-muted-foreground/80">
-                                  {toolMsg.tool_description}
-                                </div>
-                              )}
-                              {toolMsg.created_at && (
-                                <span className="ml-2 text-xs">
-                                  {formatDistanceToNow(new Date(toolMsg.created_at), { addSuffix: true })}
-                                </span>
-                              )}
-                              {toolMsg.bubble_id && (
-                                <div className="mt-1.5 font-mono text-[11px] text-muted-foreground">
-                                  Bubble ID: {toolMsg.bubble_id}
-                                </div>
+                            <div key={toolIdx} className="space-y-3">
+                              <div className="p-3 bg-card rounded-md border border-border text-sm text-muted-foreground">
+                                <strong className="text-accent-purple font-semibold">
+                                  {toolMsg.tool_name || (toolMsg.role?.charAt(0).toUpperCase() + toolMsg.role?.slice(1) || 'Tool')}
+                                </strong>
+                                {toolMsg.tool_description && (
+                                  <div className="mt-1 text-xs text-muted-foreground/80">
+                                    {toolMsg.tool_description}
+                                  </div>
+                                )}
+                                {toolMsg.created_at && (
+                                  <span className="ml-2 text-xs">
+                                    {formatDistanceToNow(new Date(toolMsg.created_at), { addSuffix: true })}
+                                  </span>
+                                )}
+                                {toolMsg.bubble_id && (
+                                  <div className="mt-1.5 font-mono text-[11px] text-muted-foreground">
+                                    Bubble ID: {toolMsg.bubble_id}
+                                  </div>
+                                )}
+                              </div>
+                              {/* Render plan content inline if present */}
+                              {toolMsg.plan_content && (
+                                <PlanContent plan={toolMsg.plan_content} />
                               )}
                             </div>
                           ))}
@@ -473,8 +477,13 @@ export default function ChatDetailPage() {
                           userMessagesRef.current[userMsgIndex] = el;
                         }
                       }}
+                      className="space-y-3"
                     >
                       <MessageComponent message={item.data} />
+                      {/* Render plan content inline if present */}
+                      {item.data.plan_content && (
+                        <PlanContent plan={item.data.plan_content} />
+                      )}
                     </div>
                   );
                 }
