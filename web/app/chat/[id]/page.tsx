@@ -528,10 +528,6 @@ export default function ChatDetailPage() {
                                   </div>
                                 )}
                               </div>
-                              {/* Render plan content inline if present */}
-                              {toolMsg.plan_content && (
-                                <PlanContent plan={toolMsg.plan_content} />
-                              )}
                               {/* Render tool result if present */}
                               {toolMsg.tool_result && (
                                 <ToolResult result={toolMsg.tool_result} />
@@ -541,6 +537,10 @@ export default function ChatDetailPage() {
                         </div>
                       )}
                     </div>
+                  );
+                } else if (item.type === 'plan_content' && item.plan) {
+                  return (
+                    <PlanContent key={`plan-content-${index}`} plan={item.plan as any} />
                   );
                 } else if (item.type === 'message' && item.data) {
                   const isUserMsg = item.data.role === 'user';
@@ -557,10 +557,6 @@ export default function ChatDetailPage() {
                       className="space-y-3"
                     >
                       <MessageComponent message={item.data} />
-                      {/* Render plan content inline if present */}
-                      {item.data.plan_content && (
-                        <PlanContent plan={item.data.plan_content} />
-                      )}
                     </div>
                   );
                 }

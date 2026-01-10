@@ -162,7 +162,7 @@ def extract_plan_content(raw_json: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """
     if not raw_json:
         return None
-    
+
     tool_former = raw_json.get("toolFormerData", {})
     if not tool_former or tool_former.get("name") != "create_plan":
         return None
@@ -370,7 +370,11 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
             raw_json = msg.get("raw_json") or {}
             plan_content = extract_plan_content(raw_json)
             if plan_content:
-                msg["plan_content"] = plan_content
+                # Create a separate plan_content item instead of attaching to tool call
+                processed_messages.append({
+                    "type": "plan_content",
+                    "plan": plan_content,
+                })
 
             # Extract tool result (output, contents, etc.)
             tool_result = extract_tool_result(raw_json)

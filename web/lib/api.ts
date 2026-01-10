@@ -55,12 +55,12 @@ export interface Message {
 }
 
 export interface ProcessedMessage {
-  type: 'message' | 'tool_call_group' | 'plan_created';
+  type: 'message' | 'tool_call_group' | 'plan_created' | 'plan_content';
   data?: Message;
   tool_calls?: Message[];
   content_types?: string[];
   summary?: string | null;
-  plan?: PlanInfo;
+  plan?: PlanInfo | PlanContent;
 }
 
 export interface PlanInfo {
