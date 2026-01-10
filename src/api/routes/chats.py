@@ -319,9 +319,6 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
             if msg_type == "thinking":
                 msg["is_thinking"] = True
 
-            # Check if this message contains todos/tasks
-            msg["is_todo"] = check_if_todo_message(msg)
-
             # Add the current message
             processed_messages.append({"type": "message", "data": msg})
 

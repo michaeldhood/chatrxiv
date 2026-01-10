@@ -16,7 +16,6 @@ interface MessageProps {
 export function Message({ message }: MessageProps) {
   const isUser = message.role === 'user';
   const isThinking = message.message_type === 'thinking';
-  const isTodo = (message as any).is_todo;
   
   const formatTimestamp = (timestamp?: string | null) => {
     if (!timestamp) return '';
@@ -49,11 +48,6 @@ export function Message({ message }: MessageProps) {
         {isThinking && (
           <span className="inline-flex items-center gap-1 px-2 py-[2px] bg-accent-purple/20 text-accent-purple rounded-xl text-xs font-medium normal-case">
             🧠 Thinking
-          </span>
-        )}
-        {isTodo && (
-          <span className="inline-flex items-center gap-1 px-2 py-[2px] bg-accent-orange/20 text-accent-orange rounded-xl text-xs font-medium normal-case">
-            📋 Todo
           </span>
         )}
         {message.created_at && (

@@ -29,7 +29,6 @@ export interface Message {
   tool_name?: string;
   tool_description?: string;
   is_thinking?: boolean;
-  is_todo?: boolean;
 }
 
 export interface ProcessedMessage {
