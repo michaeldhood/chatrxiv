@@ -28,6 +28,13 @@ export interface PlanContent {
   status?: string;
 }
 
+export interface TerminalCommand {
+  command: string;
+  output?: string;
+  status?: string;
+  created_at?: string;
+}
+
 export interface ToolResult {
   tool_name?: string;
   status?: string;
@@ -55,12 +62,13 @@ export interface Message {
 }
 
 export interface ProcessedMessage {
-  type: 'message' | 'tool_call_group' | 'plan_created' | 'plan_content';
+  type: 'message' | 'tool_call_group' | 'plan_created' | 'plan_content' | 'terminal_command';
   data?: Message;
   tool_calls?: Message[];
   content_types?: string[];
   summary?: string | null;
   plan?: PlanInfo | PlanContent;
+  terminal_command?: TerminalCommand;
 }
 
 export interface PlanInfo {

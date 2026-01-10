@@ -198,6 +198,77 @@ def extract_plan_content(raw_json: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     }
 
 
+def extract_terminal_command(raw_json: Dict[str, Any], created_at: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """
+    Extract terminal command and output from run_terminal_cmd tool call bubble.
+
+    Parameters
+    ----
+    raw_json : Dict[str, Any]
+        Raw JSON data from message bubble
+    created_at : str, optional
+        Timestamp when the command was executed
+
+    Returns
+    ----
+    Optional[Dict[str, Any]]
+        Terminal command dict with command, output, status, created_at
+        or None if not a run_terminal_cmd tool call
+    """
+    if not raw_json:
+        return None
+
+    tool_former = raw_json.get("toolFormerData", {})
+    if not tool_former or tool_former.get("name") != "run_terminal_cmd":
+        return None
+
+    # Parse rawArgs or params to get the command
+    raw_args = tool_former.get("rawArgs", "{}")
+    if isinstance(raw_args, str):
+        try:
+            raw_args = json.loads(raw_args)
+        except (json.JSONDecodeError, TypeError):
+            raw_args = {}
+
+    # Fallback to params if rawArgs parsing failed
+    if not raw_args or "command" not in raw_args:
+        params = tool_former.get("params", "{}")
+        if isinstance(params, str):
+            try:
+                params_dict = json.loads(params)
+            except (json.JSONDecodeError, TypeError):
+                params_dict = {}
+        else:
+            params_dict = params or {}
+        
+        # Extract command from params
+        command = params_dict.get("command", "")
+        if not command and raw_args:
+            command = raw_args.get("command", "")
+    else:
+        command = raw_args.get("command", "")
+
+    # Parse result to get output
+    result_str = tool_former.get("result", "{}")
+    if isinstance(result_str, str):
+        try:
+            result = json.loads(result_str)
+        except (json.JSONDecodeError, TypeError):
+            result = {}
+    else:
+        result = result_str or {}
+
+    output = result.get("output", "")
+    status = tool_former.get("status")
+
+    return {
+        "command": command,
+        "output": output,
+        "status": status,
+        "created_at": created_at,
+    }
+
+
 def extract_tool_result(raw_json: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """
     Extract tool result from toolFormerData.
@@ -351,6 +422,7 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
     tool_call_group = []
     tool_call_group_index = -1  # Track index for inserting plan indicators
     pending_plan_content = None  # Track plan content to insert after tool call group
+    pending_terminal_commands = []  # Track terminal commands to insert after tool call group
 
     for msg in chat.get("messages", []):
         msg_type = msg.get("message_type", "response")
@@ -374,6 +446,13 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
                 # Store plan content to insert after tool call group
                 pending_plan_content = plan_content
 
+            # Extract terminal command if this is a run_terminal_cmd tool call
+            created_at = msg.get("created_at")
+            terminal_command = extract_terminal_command(raw_json, created_at)
+            if terminal_command:
+                # Store terminal command to insert after tool call group
+                pending_terminal_commands.append(terminal_command)
+
             # Extract tool result (output, contents, etc.)
             tool_result = extract_tool_result(raw_json)
             if tool_result:
@@ -392,7 +471,7 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
                         "summary": summary,
                     }
                 )
-                
+
                 # Insert plan content right after the tool call group if we have one
                 if pending_plan_content:
                     processed_messages.append(
@@ -402,6 +481,16 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
                         }
                     )
                     pending_plan_content = None
+
+                # Insert terminal commands right after the tool call group
+                for terminal_cmd in pending_terminal_commands:
+                    processed_messages.append(
+                        {
+                            "type": "terminal_command",
+                            "terminal_command": terminal_cmd,
+                        }
+                    )
+                pending_terminal_commands = []
 
                 # Check if this tool call group created any plans
                 # Look for file write operations that match plan file paths
@@ -479,7 +568,7 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
                 "summary": summary,
             }
         )
-        
+
         # Insert plan content right after the final tool call group if we have one
         if pending_plan_content:
             processed_messages.append(
@@ -489,6 +578,16 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
                 }
             )
             pending_plan_content = None
+
+        # Insert terminal commands right after the final tool call group
+        for terminal_cmd in pending_terminal_commands:
+            processed_messages.append(
+                {
+                    "type": "terminal_command",
+                    "terminal_command": terminal_cmd,
+                }
+            )
+        pending_terminal_commands = []
 
         # Check if this final tool call group created any plans
         for tool_msg in tool_call_group:

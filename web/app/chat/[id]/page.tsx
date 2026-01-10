@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { fetchChat, summarizeChat, type ChatDetail, type Message } from '@/lib/api';
 import { Message as MessageComponent } from '@/components/message';
 import { PlanContent } from '@/components/plan-content';
+import { TerminalCommand } from '@/components/terminal-command';
 import { ToolResult } from '@/components/tool-result';
 import { Markdown } from '@/components/markdown';
 import { formatDistanceToNow } from 'date-fns';
@@ -244,6 +245,9 @@ export default function ChatDetailPage() {
       return hasVisibleType;
     } else if (item.type === 'plan_content') {
       // Always show plan content
+      return true;
+    } else if (item.type === 'terminal_command') {
+      // Always show terminal commands
       return true;
     }
     return true;
@@ -544,6 +548,10 @@ export default function ChatDetailPage() {
                 } else if (item.type === 'plan_content' && item.plan) {
                   return (
                     <PlanContent key={`plan-content-${index}`} plan={item.plan as any} />
+                  );
+                } else if (item.type === 'terminal_command' && item.terminal_command) {
+                  return (
+                    <TerminalCommand key={`terminal-${index}`} terminalCommand={item.terminal_command} />
                   );
                 } else if (item.type === 'message' && item.data) {
                   const isUserMsg = item.data.role === 'user';
