@@ -143,46 +143,6 @@ def classify_tool_call(msg: Dict[str, Any]) -> Dict[str, str]:
     }
 
 
-def check_if_todo_message(msg: Dict[str, Any]) -> bool:
-    """
-    Check if a message contains todo/task list content.
-
-    Todos can be identified by:
-    - Task checkboxes (- [ ], - [x])
-    - TODO/task keywords
-    - Numbered task lists
-
-    Parameters
-    ----
-    msg : Dict[str, Any]
-        Message dictionary to check
-
-    Returns
-    ----
-    bool
-        True if message appears to contain todos/tasks
-    """
-    text = msg.get("text", "") or msg.get("rich_text", "") or ""
-    text_lower = text.lower()
-
-    # Check for common todo/task patterns in content
-    todo_patterns = [
-        "- [ ]",
-        "- [x]",  # Task checkboxes
-        "todo:",
-        "task:",
-        "1. ",
-        "2. ",
-        "3. ",  # Numbered steps (with at least 3)
-    ]
-
-    # Count how many todo indicators are present
-    indicator_count = sum(1 for pattern in todo_patterns if pattern in text_lower)
-
-    # If multiple indicators, likely contains todos
-    return indicator_count >= 2
-
-
 def build_tool_group_summary(
     tool_calls: List[Dict[str, Any]],
 ) -> Tuple[List[str], Optional[str]]:
