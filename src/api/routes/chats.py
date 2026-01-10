@@ -350,6 +350,7 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
     processed_messages = []
     tool_call_group = []
     tool_call_group_index = -1  # Track index for inserting plan indicators
+    pending_plan_content = None  # Track plan content to insert after tool call group
 
     for msg in chat.get("messages", []):
         msg_type = msg.get("message_type", "response")
@@ -370,11 +371,8 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
             raw_json = msg.get("raw_json") or {}
             plan_content = extract_plan_content(raw_json)
             if plan_content:
-                # Create a separate plan_content item instead of attaching to tool call
-                processed_messages.append({
-                    "type": "plan_content",
-                    "plan": plan_content,
-                })
+                # Store plan content to insert after tool call group
+                pending_plan_content = plan_content
 
             # Extract tool result (output, contents, etc.)
             tool_result = extract_tool_result(raw_json)
@@ -394,6 +392,16 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
                         "summary": summary,
                     }
                 )
+                
+                # Insert plan content right after the tool call group if we have one
+                if pending_plan_content:
+                    processed_messages.append(
+                        {
+                            "type": "plan_content",
+                            "plan": pending_plan_content,
+                        }
+                    )
+                    pending_plan_content = None
 
                 # Check if this tool call group created any plans
                 # Look for file write operations that match plan file paths
@@ -471,6 +479,16 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
                 "summary": summary,
             }
         )
+        
+        # Insert plan content right after the final tool call group if we have one
+        if pending_plan_content:
+            processed_messages.append(
+                {
+                    "type": "plan_content",
+                    "plan": pending_plan_content,
+                }
+            )
+            pending_plan_content = None
 
         # Check if this final tool call group created any plans
         for tool_msg in tool_call_group:

@@ -242,6 +242,9 @@ export default function ChatDetailPage() {
         return filterState[type as keyof typeof filterState] !== false;
       });
       return hasVisibleType;
+    } else if (item.type === 'plan_content') {
+      // Always show plan content
+      return true;
     }
     return true;
   };
