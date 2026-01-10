@@ -32,11 +32,12 @@ export interface Message {
 }
 
 export interface ProcessedMessage {
-  type: 'message' | 'tool_call_group';
+  type: 'message' | 'tool_call_group' | 'plan_created';
   data?: Message;
   tool_calls?: Message[];
   content_types?: string[];
   summary?: string | null;
+  plan?: PlanInfo;
 }
 
 export interface PlanInfo {
