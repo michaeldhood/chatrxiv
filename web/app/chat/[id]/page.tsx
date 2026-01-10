@@ -18,9 +18,40 @@ export default function ChatDetailPage() {
   const [currentUserMessageIndex, setCurrentUserMessageIndex] = useState(0);
   const userMessagesRef = useRef<HTMLDivElement[]>([]);
   
+  // Visibility filter state (all start active/visible)
+  const [filterState, setFilterState] = useState({
+    thinking: true,
+    terminal: true,
+    'file-write': true,
+    'file-read': true,
+    plan: true,
+  });
+  
   useEffect(() => {
     loadChat();
   }, [chatId]);
+  
+  // Load filter preferences from localStorage
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('chatVisibilityFilters');
+      if (saved) {
+        const savedState = JSON.parse(saved);
+        setFilterState(prev => ({ ...prev, ...savedState }));
+      }
+    } catch (e) {
+      console.debug('Could not load filter preferences:', e);
+    }
+  }, []);
+  
+  // Save filter preferences to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('chatVisibilityFilters', JSON.stringify(filterState));
+    } catch (e) {
+      console.debug('Could not save filter preferences:', e);
+    }
+  }, [filterState]);
   
   const loadChat = async () => {
     setLoading(true);
@@ -34,31 +65,8 @@ export default function ChatDetailPage() {
     }
   };
   
-  // Process messages to group tool calls
-  const processedMessages = chat ? (() => {
-    const result: Array<{ type: 'message' | 'tool_call_group'; data?: Message; tool_calls?: Message[] }> = [];
-    let toolCallGroup: Message[] = [];
-    
-    for (const msg of chat.messages) {
-      if (msg.message_type === 'empty') continue;
-      
-      if (msg.message_type === 'tool_call') {
-        toolCallGroup.push(msg);
-      } else {
-        if (toolCallGroup.length > 0) {
-          result.push({ type: 'tool_call_group', tool_calls: [...toolCallGroup] });
-          toolCallGroup = [];
-        }
-        result.push({ type: 'message', data: msg });
-      }
-    }
-    
-    if (toolCallGroup.length > 0) {
-      result.push({ type: 'tool_call_group', tool_calls: toolCallGroup });
-    }
-    
-    return result;
-  })() : [];
+  // Use processed messages from backend (includes classification)
+  const processedMessages = chat?.processed_messages || [];
   
   // Extract user messages for jump navigation
   const userMessages = processedMessages
@@ -163,6 +171,62 @@ export default function ChatDetailPage() {
     }`;
   };
   
+  // Count elements by content type
+  const countContentTypes = () => {
+    const counts = {
+      thinking: 0,
+      terminal: 0,
+      'file-write': 0,
+      'file-read': 0,
+      plan: 0,
+    };
+    
+    processedMessages.forEach((item) => {
+      if (item.type === 'message' && item.data) {
+        const msg = item.data;
+        if (msg.is_thinking) counts.thinking++;
+        if (msg.is_plan) counts.plan++;
+      } else if (item.type === 'tool_call_group' && item.content_types) {
+        item.content_types.forEach((type: string) => {
+          if (counts.hasOwnProperty(type)) {
+            counts[type as keyof typeof counts]++;
+          }
+        });
+      }
+    });
+    
+    return counts;
+  };
+  
+  const contentCounts = countContentTypes();
+  
+  const toggleFilter = (filterType: keyof typeof filterState) => {
+    setFilterState(prev => ({
+      ...prev,
+      [filterType]: !prev[filterType]
+    }));
+  };
+  
+  const shouldShowItem = (item: typeof processedMessages[0]): boolean => {
+    if (item.type === 'message' && item.data) {
+      const msg = item.data;
+      // Regular messages (not thinking/plan) always show
+      if (!msg.is_thinking && !msg.is_plan) return true;
+      
+      // Check if thinking/plan filters are active
+      if (msg.is_thinking && !filterState.thinking) return false;
+      if (msg.is_plan && !filterState.plan) return false;
+      return true;
+    } else if (item.type === 'tool_call_group' && item.content_types) {
+      // A tool call group is hidden if ALL its types are filtered out
+      const hasVisibleType = item.content_types.some((type: string) => {
+        return filterState[type as keyof typeof filterState] !== false;
+      });
+      return hasVisibleType;
+    }
+    return true;
+  };
+  
   if (loading) {
     return (
       <div className="p-12 text-center text-muted-foreground">
@@ -228,6 +292,72 @@ export default function ChatDetailPage() {
               Copy as JSON
             </button>
           </div>
+          
+          {/* Visibility Toggles */}
+          <div className="mt-4 pt-4 border-t border-border">
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => toggleFilter('thinking')}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                  filterState.thinking
+                    ? 'bg-primary/20 text-primary border border-primary/30'
+                    : 'bg-muted text-muted-foreground border border-border hover:bg-muted/80'
+                }`}
+              >
+                <span>🧠</span>
+                <span>Thinking</span>
+                <span className="text-[10px] opacity-70">({contentCounts.thinking})</span>
+              </button>
+              <button
+                onClick={() => toggleFilter('terminal')}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                  filterState.terminal
+                    ? 'bg-primary/20 text-primary border border-primary/30'
+                    : 'bg-muted text-muted-foreground border border-border hover:bg-muted/80'
+                }`}
+              >
+                <span>💻</span>
+                <span>Terminal</span>
+                <span className="text-[10px] opacity-70">({contentCounts.terminal})</span>
+              </button>
+              <button
+                onClick={() => toggleFilter('file-write')}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                  filterState['file-write']
+                    ? 'bg-primary/20 text-primary border border-primary/30'
+                    : 'bg-muted text-muted-foreground border border-border hover:bg-muted/80'
+                }`}
+              >
+                <span>📝</span>
+                <span>Files Written</span>
+                <span className="text-[10px] opacity-70">({contentCounts['file-write']})</span>
+              </button>
+              <button
+                onClick={() => toggleFilter('file-read')}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                  filterState['file-read']
+                    ? 'bg-primary/20 text-primary border border-primary/30'
+                    : 'bg-muted text-muted-foreground border border-border hover:bg-muted/80'
+                }`}
+              >
+                <span>📖</span>
+                <span>Files Read</span>
+                <span className="text-[10px] opacity-70">({contentCounts['file-read']})</span>
+              </button>
+              <button
+                onClick={() => toggleFilter('plan')}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                  filterState.plan
+                    ? 'bg-primary/20 text-primary border border-primary/30'
+                    : 'bg-muted text-muted-foreground border border-border hover:bg-muted/80'
+                }`}
+              >
+                <span>📋</span>
+                <span>Plans</span>
+                <span className="text-[10px] opacity-70">({contentCounts.plan})</span>
+              </button>
+            </div>
+          </div>
         </div>
         
         {/* Tags */}
@@ -284,6 +414,11 @@ export default function ChatDetailPage() {
           ) : (
             <div className="space-y-5">
               {processedMessages.map((item, index) => {
+                // Apply visibility filter
+                if (!shouldShowItem(item)) {
+                  return null;
+                }
+                
                 if (item.type === 'tool_call_group' && item.tool_calls) {
                   const isExpanded = expandedToolGroups.has(index);
                   return (
@@ -298,18 +433,24 @@ export default function ChatDetailPage() {
                         <span>🔧</span>
                         <span>
                           {item.tool_calls.length} tool call{item.tool_calls.length !== 1 ? 's' : ''}
+                          {item.summary && ` - ${item.summary}`}
                         </span>
                       </button>
                       {isExpanded && (
                         <div className="px-4 py-4 border-t border-border space-y-2">
-                          {item.tool_calls.map((toolMsg, toolIdx) => (
+                          {item.tool_calls.map((toolMsg: any, toolIdx: number) => (
                             <div
                               key={toolIdx}
                               className="p-3 bg-card rounded-md border border-border text-sm text-muted-foreground"
                             >
                               <strong className="text-accent-purple font-semibold">
-                                {toolMsg.role.charAt(0).toUpperCase() + toolMsg.role.slice(1)}
+                                {toolMsg.tool_name || (toolMsg.role?.charAt(0).toUpperCase() + toolMsg.role?.slice(1) || 'Tool')}
                               </strong>
+                              {toolMsg.tool_description && (
+                                <div className="mt-1 text-xs text-muted-foreground/80">
+                                  {toolMsg.tool_description}
+                                </div>
+                              )}
                               {toolMsg.created_at && (
                                 <span className="ml-2 text-xs">
                                   {formatDistanceToNow(new Date(toolMsg.created_at), { addSuffix: true })}

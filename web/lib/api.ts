@@ -25,11 +25,25 @@ export interface Message {
   created_at?: string | null;
   bubble_id?: string | null;
   message_type: string;
+  tool_type?: string;
+  tool_name?: string;
+  tool_description?: string;
+  is_thinking?: boolean;
+  is_plan?: boolean;
+}
+
+export interface ProcessedMessage {
+  type: 'message' | 'tool_call_group';
+  data?: Message;
+  tool_calls?: Message[];
+  content_types?: string[];
+  summary?: string | null;
 }
 
 export interface ChatDetail extends ChatSummary {
   files: string[];
   messages: Message[];
+  processed_messages?: ProcessedMessage[];
 }
 
 export interface SearchResult extends ChatSummary {
