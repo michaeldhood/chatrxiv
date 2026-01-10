@@ -156,6 +156,30 @@ class ChatDatabase:
             )
         """)
 
+        # Plans table (metadata only)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS plans (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                plan_id TEXT UNIQUE NOT NULL,
+                name TEXT NOT NULL,
+                file_path TEXT,
+                created_at TEXT,
+                last_updated_at TEXT
+            )
+        """)
+
+        # Junction table for chat-plan relationships
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS chat_plans (
+                chat_id INTEGER NOT NULL,
+                plan_id INTEGER NOT NULL,
+                relationship TEXT NOT NULL,
+                PRIMARY KEY (chat_id, plan_id, relationship),
+                FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE,
+                FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE
+            )
+        """)
+
         # FTS5 virtual table for full-text search on messages
         cursor.execute("""
             CREATE VIRTUAL TABLE IF NOT EXISTS message_fts USING fts5(
@@ -243,6 +267,15 @@ class ChatDatabase:
         )
         cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_workspaces_project ON workspaces(project_id)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_plans_plan_id ON plans(plan_id)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_chat_plans_chat ON chat_plans(chat_id)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_chat_plans_plan ON chat_plans(plan_id)"
         )
 
         # Check if unified_fts needs to be rebuilt (migration for existing databases)
@@ -1465,6 +1498,156 @@ class ChatDatabase:
         cursor = self.conn.cursor()
         cursor.execute("SELECT path FROM chat_files WHERE chat_id = ?", (chat_id,))
         return [row[0] for row in cursor.fetchall()]
+
+    def upsert_plan(
+        self,
+        plan_id: str,
+        name: str,
+        file_path: Optional[str] = None,
+        created_at: Optional[str] = None,
+        last_updated_at: Optional[str] = None,
+    ) -> int:
+        """
+        Insert or update a plan.
+
+        Parameters
+        ----
+        plan_id : str
+            Unique plan identifier (e.g., "complete_chatrxiv_migration_f77a44d3")
+        name : str
+            Plan name
+        file_path : str, optional
+            Path to the .plan.md file
+        created_at : str, optional
+            ISO timestamp when plan was created
+        last_updated_at : str, optional
+            ISO timestamp when plan was last updated
+
+        Returns
+        ----
+        int
+            Plan database ID
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO plans (plan_id, name, file_path, created_at, last_updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(plan_id) DO UPDATE SET
+                name = excluded.name,
+                file_path = excluded.file_path,
+                last_updated_at = excluded.last_updated_at
+            """,
+            (plan_id, name, file_path, created_at, last_updated_at),
+        )
+        self.conn.commit()
+        cursor.execute("SELECT id FROM plans WHERE plan_id = ?", (plan_id,))
+        return cursor.fetchone()[0]
+
+    def link_chat_to_plan(
+        self, chat_id: int, plan_id: int, relationship: str
+    ) -> None:
+        """
+        Link a chat to a plan with a specific relationship.
+
+        Parameters
+        ----
+        chat_id : int
+            Chat database ID
+        plan_id : int
+            Plan database ID
+        relationship : str
+            Relationship type: 'created', 'edited', or 'referenced'
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            INSERT OR IGNORE INTO chat_plans (chat_id, plan_id, relationship)
+            VALUES (?, ?, ?)
+            """,
+            (chat_id, plan_id, relationship),
+        )
+        self.conn.commit()
+
+    def get_plans_for_chat(self, chat_id: int) -> List[Dict[str, Any]]:
+        """
+        Get all plans linked to a chat.
+
+        Parameters
+        ----
+        chat_id : int
+            Chat database ID
+
+        Returns
+        ----
+        List[Dict[str, Any]]
+            List of plan dictionaries with relationship info
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT p.id, p.plan_id, p.name, p.file_path, p.created_at, p.last_updated_at,
+                   cp.relationship
+            FROM plans p
+            JOIN chat_plans cp ON p.id = cp.plan_id
+            WHERE cp.chat_id = ?
+            ORDER BY p.created_at DESC
+            """,
+            (chat_id,),
+        )
+        rows = cursor.fetchall()
+        return [
+            {
+                "id": row[0],
+                "plan_id": row[1],
+                "name": row[2],
+                "file_path": row[3],
+                "created_at": row[4],
+                "last_updated_at": row[5],
+                "relationship": row[6],
+            }
+            for row in rows
+        ]
+
+    def get_chats_for_plan(self, plan_id: int) -> List[Dict[str, Any]]:
+        """
+        Get all chats linked to a plan.
+
+        Parameters
+        ----
+        plan_id : int
+            Plan database ID
+
+        Returns
+        ----
+        List[Dict[str, Any]]
+            List of chat dictionaries with relationship info
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT c.id, c.cursor_composer_id, c.title, c.mode, c.created_at,
+                   c.last_updated_at, cp.relationship
+            FROM chats c
+            JOIN chat_plans cp ON c.id = cp.chat_id
+            WHERE cp.plan_id = ?
+            ORDER BY c.created_at DESC
+            """,
+            (plan_id,),
+        )
+        rows = cursor.fetchall()
+        return [
+            {
+                "id": row[0],
+                "cursor_composer_id": row[1],
+                "title": row[2],
+                "mode": row[3],
+                "created_at": row[4],
+                "last_updated_at": row[5],
+                "relationship": row[6],
+            }
+            for row in rows
+        ]
 
     def _rebuild_unified_fts(self):
         """Rebuild the unified FTS index from all existing data."""

@@ -13,6 +13,7 @@ from src.api.schemas import (
     ChatSummary,
     FilterOption,
     FilterOptionsResponse,
+    PlanInfo,
 )
 from src.core.db import ChatDatabase
 from src.services.search import ChatSearchService
@@ -130,14 +131,14 @@ def classify_tool_call(msg: Dict[str, Any]) -> Dict[str, str]:
     }
 
 
-def check_if_plan_message(msg: Dict[str, Any]) -> bool:
+def check_if_todo_message(msg: Dict[str, Any]) -> bool:
     """
-    Check if a message is a plan/planning message.
+    Check if a message contains todo/task list content.
     
-    Plans can be identified by:
-    - Being in 'plan' mode chat
-    - Containing TODO/task/plan patterns in content
-    - Having specific structure markers
+    Todos can be identified by:
+    - Task checkboxes (- [ ], - [x])
+    - TODO/task keywords
+    - Numbered task lists
     
     Parameters
     ----
@@ -147,26 +148,22 @@ def check_if_plan_message(msg: Dict[str, Any]) -> bool:
     Returns
     ----
     bool
-        True if message appears to be a plan
+        True if message appears to contain todos/tasks
     """
     text = msg.get('text', '') or msg.get('rich_text', '') or ''
     text_lower = text.lower()
     
-    # Check for common plan patterns in content
-    plan_patterns = [
-        '## plan', '# plan', '### plan',
-        'here\'s my plan', 'here is my plan',
-        'i\'ll', 'i will',
-        'step 1:', 'step 2:',
-        '1. ', '2. ', '3. ',  # Numbered steps (with at least 3)
+    # Check for common todo/task patterns in content
+    todo_patterns = [
         '- [ ]', '- [x]',  # Task checkboxes
         'todo:', 'task:',
+        '1. ', '2. ', '3. ',  # Numbered steps (with at least 3)
     ]
     
-    # Count how many plan indicators are present
-    indicator_count = sum(1 for pattern in plan_patterns if pattern in text_lower)
+    # Count how many todo indicators are present
+    indicator_count = sum(1 for pattern in todo_patterns if pattern in text_lower)
     
-    # If multiple indicators, likely a plan
+    # If multiple indicators, likely contains todos
     return indicator_count >= 2
 
 
@@ -257,8 +254,9 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
 
-    # Check if this is a plan-mode chat
-    is_plan_chat = chat.get('mode') == 'plan'
+    # Get plans linked to this chat
+    plans_data = db.get_plans_for_chat(chat_id)
+    chat["plans"] = [PlanInfo(**plan) for plan in plans_data]
     
     # Process messages - group tool calls together and classify them
     # Frontend expects this for collapsible tool call groups with filtering
@@ -299,8 +297,8 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
             if msg_type == 'thinking':
                 msg['is_thinking'] = True
             
-            # Check if this is a plan message
-            msg['is_plan'] = is_plan_chat or check_if_plan_message(msg)
+            # Check if this message contains todos/tasks
+            msg['is_todo'] = check_if_todo_message(msg)
 
             # Add the current message
             processed_messages.append({"type": "message", "data": msg})

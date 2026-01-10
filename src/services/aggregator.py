@@ -15,6 +15,7 @@ from src.core.db import ChatDatabase
 from src.core.models import Chat, Message, Workspace, ChatMode, MessageRole, MessageType
 from src.readers.workspace_reader import WorkspaceStateReader
 from src.readers.global_reader import GlobalComposerReader
+from src.readers.plan_reader import PlanRegistryReader
 from src.readers import ClaudeReader, ChatGPTReader
 
 logger = logging.getLogger(__name__)
@@ -55,6 +56,7 @@ class ChatAggregator:
         self.db = db
         self.workspace_reader = WorkspaceStateReader()
         self.global_reader = GlobalComposerReader()
+        self.plan_reader = PlanRegistryReader()
     
     def _resolve_conversation_from_headers(
         self, composer_id: str, headers: List[Dict[str, Any]]
@@ -832,6 +834,82 @@ class ChatAggregator:
             logger.info("Ingestion complete: %d ingested, %d skipped, %d errors, %d workspaces inferred", 
                        stats["ingested"], stats["skipped"], stats["errors"], stats["inferred_workspaces"])
         
+        # Ingest plans after chats are ingested (plans link to chats)
+        logger.info("Ingesting plans...")
+        plan_stats = self.ingest_plans()
+        logger.info("Plan ingestion complete: %d plans ingested", plan_stats.get("ingested", 0))
+        
+        return stats
+
+    def ingest_plans(self) -> Dict[str, int]:
+        """
+        Ingest plans from Cursor's plan registry.
+
+        Reads plan metadata from composer.planRegistry and links plans to chats
+        based on createdBy, editedBy, and referencedBy relationships.
+
+        Returns
+        ----
+        Dict[str, int]
+            Statistics: {"ingested": count, "errors": count}
+        """
+        stats = {"ingested": 0, "errors": 0}
+
+        try:
+            # Get plan metadata from registry
+            plans = self.plan_reader.get_plan_metadata()
+
+            for plan_data in plans:
+                try:
+                    # Upsert plan
+                    plan_db_id = self.db.upsert_plan(
+                        plan_id=plan_data["plan_id"],
+                        name=plan_data["name"],
+                        file_path=plan_data["file_path"],
+                        created_at=plan_data["created_at"],
+                        last_updated_at=plan_data["last_updated_at"],
+                    )
+
+                    # Link to chat that created the plan
+                    if plan_data["created_by"]:
+                        chat = self.db.get_chat_by_composer_id(plan_data["created_by"])
+                        if chat:
+                            self.db.link_chat_to_plan(
+                                chat_id=chat["id"],
+                                plan_id=plan_db_id,
+                                relationship="created",
+                            )
+
+                    # Link to chats that edited the plan
+                    for composer_id in plan_data.get("edited_by", []):
+                        chat = self.db.get_chat_by_composer_id(composer_id)
+                        if chat:
+                            self.db.link_chat_to_plan(
+                                chat_id=chat["id"],
+                                plan_id=plan_db_id,
+                                relationship="edited",
+                            )
+
+                    # Link to chats that referenced the plan
+                    for composer_id in plan_data.get("referenced_by", []):
+                        chat = self.db.get_chat_by_composer_id(composer_id)
+                        if chat:
+                            self.db.link_chat_to_plan(
+                                chat_id=chat["id"],
+                                plan_id=plan_db_id,
+                                relationship="referenced",
+                            )
+
+                    stats["ingested"] += 1
+
+                except Exception as e:
+                    logger.error("Error ingesting plan %s: %s", plan_data.get("plan_id"), e)
+                    stats["errors"] += 1
+
+        except Exception as e:
+            logger.error("Error reading plan registry: %s", e)
+            stats["errors"] += 1
+
         return stats
     
     def _convert_claude_to_chat(self, conversation_data: Dict[str, Any]) -> Optional[Chat]:

@@ -37,6 +37,16 @@ class ChatSummary(BaseModel):
     tags: List[str] = Field(default_factory=list)
 
 
+class PlanInfo(BaseModel):
+    """Plan information linked to a chat."""
+
+    id: int
+    plan_id: str
+    name: str
+    file_path: Optional[str] = None
+    relationship: str  # 'created', 'edited', or 'referenced'
+
+
 class ChatDetail(BaseModel):
     """Full chat with all messages."""
 
@@ -53,6 +63,7 @@ class ChatDetail(BaseModel):
     workspace_path: Optional[str] = None
     tags: List[str] = Field(default_factory=list)
     files: List[str] = Field(default_factory=list)
+    plans: List[PlanInfo] = Field(default_factory=list)
     messages: List[Message] = Field(default_factory=list)
     processed_messages: List[Dict[str, Any]] = Field(default_factory=list)
 

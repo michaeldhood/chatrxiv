@@ -7,6 +7,7 @@ from src.readers.claude_reader import ClaudeReader
 from src.readers.chatgpt_reader import ChatGPTReader
 from src.readers.global_reader import GlobalComposerReader
 from src.readers.workspace_reader import WorkspaceStateReader
+from src.readers.plan_reader import PlanRegistryReader
 
 __all__ = [
     "WebConversationReader",
@@ -14,4 +15,5 @@ __all__ = [
     "ChatGPTReader",
     "GlobalComposerReader",
     "WorkspaceStateReader",
+    "PlanRegistryReader",
 ]

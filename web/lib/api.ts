@@ -29,7 +29,7 @@ export interface Message {
   tool_name?: string;
   tool_description?: string;
   is_thinking?: boolean;
-  is_plan?: boolean;
+  is_todo?: boolean;
 }
 
 export interface ProcessedMessage {
@@ -40,8 +40,17 @@ export interface ProcessedMessage {
   summary?: string | null;
 }
 
+export interface PlanInfo {
+  id: number;
+  plan_id: string;
+  name: string;
+  file_path?: string | null;
+  relationship: string; // 'created', 'edited', or 'referenced'
+}
+
 export interface ChatDetail extends ChatSummary {
   files: string[];
+  plans: PlanInfo[];
   messages: Message[];
   processed_messages?: ProcessedMessage[];
 }

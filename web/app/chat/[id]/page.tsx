@@ -24,7 +24,7 @@ export default function ChatDetailPage() {
     terminal: true,
     'file-write': true,
     'file-read': true,
-    plan: true,
+    todo: true,
   });
   
   useEffect(() => {
@@ -178,14 +178,14 @@ export default function ChatDetailPage() {
       terminal: 0,
       'file-write': 0,
       'file-read': 0,
-      plan: 0,
+      todo: 0,
     };
     
     processedMessages.forEach((item) => {
       if (item.type === 'message' && item.data) {
         const msg = item.data;
         if (msg.is_thinking) counts.thinking++;
-        if (msg.is_plan) counts.plan++;
+        if (msg.is_todo) counts.todo++;
       } else if (item.type === 'tool_call_group' && item.content_types) {
         item.content_types.forEach((type: string) => {
           if (counts.hasOwnProperty(type)) {
@@ -210,12 +210,12 @@ export default function ChatDetailPage() {
   const shouldShowItem = (item: typeof processedMessages[0]): boolean => {
     if (item.type === 'message' && item.data) {
       const msg = item.data;
-      // Regular messages (not thinking/plan) always show
-      if (!msg.is_thinking && !msg.is_plan) return true;
+      // Regular messages (not thinking/todo) always show
+      if (!msg.is_thinking && !msg.is_todo) return true;
       
-      // Check if thinking/plan filters are active
+      // Check if thinking/todo filters are active
       if (msg.is_thinking && !filterState.thinking) return false;
-      if (msg.is_plan && !filterState.plan) return false;
+      if (msg.is_todo && !filterState.todo) return false;
       return true;
     } else if (item.type === 'tool_call_group' && item.content_types) {
       // A tool call group is hidden if ALL its types are filtered out
@@ -345,16 +345,16 @@ export default function ChatDetailPage() {
                 <span className="text-[10px] opacity-70">({contentCounts['file-read']})</span>
               </button>
               <button
-                onClick={() => toggleFilter('plan')}
+                onClick={() => toggleFilter('todo')}
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                  filterState.plan
+                  filterState.todo
                     ? 'bg-primary/20 text-primary border border-primary/30'
                     : 'bg-muted text-muted-foreground border border-border hover:bg-muted/80'
                 }`}
               >
                 <span>📋</span>
-                <span>Plans</span>
-                <span className="text-[10px] opacity-70">({contentCounts.plan})</span>
+                <span>Todos</span>
+                <span className="text-[10px] opacity-70">({contentCounts.todo})</span>
               </button>
             </div>
           </div>
