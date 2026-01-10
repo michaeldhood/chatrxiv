@@ -135,8 +135,11 @@ class ChatAggregator:
 
         # Check for tool-related fields
         # Cursor stores tool calls with various metadata fields
+        # toolFormerData contains tool execution info (name, params, result)
+        # toolFormerResult contains execution results
         if (
             bubble.get("codeBlock")
+            or bubble.get("toolFormerData")
             or bubble.get("toolFormerResult")
             or bubble.get("toolCalls")
             or bubble.get("toolCall")
