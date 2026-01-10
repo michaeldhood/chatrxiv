@@ -27,6 +27,17 @@ export interface PlanContent {
   status?: string;
 }
 
+export interface ToolResult {
+  tool_name?: string;
+  status?: string;
+  output?: string; // Terminal output
+  contents?: string; // File contents
+  diff?: object; // File write diff
+  total_matches?: number; // Grep results
+  top_files?: Array<{ uri: string; matchCount: number }>;
+  error?: boolean | string;
+}
+
 export interface Message {
   role: string;
   text?: string | null;
@@ -39,6 +50,7 @@ export interface Message {
   tool_description?: string;
   is_thinking?: boolean;
   plan_content?: PlanContent;
+  tool_result?: ToolResult;
 }
 
 export interface ProcessedMessage {

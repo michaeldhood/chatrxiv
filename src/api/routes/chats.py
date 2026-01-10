@@ -194,6 +194,49 @@ def extract_plan_content(raw_json: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     }
 
 
+def extract_tool_result(raw_json: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    Extract tool result from toolFormerData.
+
+    Parameters
+    ----
+    raw_json : Dict[str, Any]
+        Raw JSON data from message bubble
+
+    Returns
+    ----
+    Optional[Dict[str, Any]]
+        Tool result dict with output, contents, diff, matches, etc.
+        or None if no toolFormerData present
+    """
+    tool_former = raw_json.get("toolFormerData", {})
+    if not tool_former:
+        return None
+
+    result_str = tool_former.get("result", "{}")
+    if isinstance(result_str, str):
+        try:
+            result = json.loads(result_str)
+        except (json.JSONDecodeError, TypeError):
+            result = {}
+    else:
+        result = result_str or {}
+
+    tool_name = tool_former.get("name", "")
+    status = tool_former.get("status")
+
+    return {
+        "tool_name": tool_name,
+        "status": status,
+        "output": result.get("output"),  # Terminal
+        "contents": result.get("contents"),  # File read
+        "diff": result.get("diff"),  # File write
+        "total_matches": result.get("totalMatches"),  # Grep
+        "top_files": result.get("topFiles"),  # Grep
+        "error": result.get("error") or result.get("rejected"),
+    }
+
+
 def build_tool_group_summary(
     tool_calls: List[Dict[str, Any]],
 ) -> Tuple[List[str], Optional[str]]:
@@ -324,6 +367,11 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
             plan_content = extract_plan_content(raw_json)
             if plan_content:
                 msg["plan_content"] = plan_content
+
+            # Extract tool result (output, contents, etc.)
+            tool_result = extract_tool_result(raw_json)
+            if tool_result:
+                msg["tool_result"] = tool_result
 
             tool_call_group.append(msg)
         else:

@@ -7,6 +7,7 @@ import { fetchChat, type ChatDetail, type Message } from '@/lib/api';
 import { Message as MessageComponent } from '@/components/message';
 import { PlanCreatedIndicator } from '@/components/plan-created-indicator';
 import { PlanContent } from '@/components/plan-content';
+import { ToolResult } from '@/components/tool-result';
 import { Markdown } from '@/components/markdown';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -454,6 +455,10 @@ export default function ChatDetailPage() {
                               {/* Render plan content inline if present */}
                               {toolMsg.plan_content && (
                                 <PlanContent plan={toolMsg.plan_content} />
+                              )}
+                              {/* Render tool result if present */}
+                              {toolMsg.tool_result && (
+                                <ToolResult result={toolMsg.tool_result} />
                               )}
                             </div>
                           ))}
