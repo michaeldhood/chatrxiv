@@ -946,6 +946,11 @@ class ChatAggregator:
         Reads plan metadata from composer.planRegistry and links plans to chats
         based on createdBy, editedBy, and referencedBy relationships.
 
+        Note: This method only adds relationships; it does not remove relationships
+        that no longer exist in Cursor's registry. This is intentional to avoid
+        accidentally removing valid relationships due to timing issues or registry
+        inconsistencies. If cleanup is needed, it can be added later.
+
         Returns
         ----
         Dict[str, int]
@@ -977,6 +982,12 @@ class ChatAggregator:
                                 plan_id=plan_db_id,
                                 relationship="created",
                             )
+                        else:
+                            logger.debug(
+                                "Plan %s references non-existent chat composer_id: %s",
+                                plan_data["plan_id"],
+                                plan_data["created_by"],
+                            )
 
                     # Link to chats that edited the plan
                     for composer_id in plan_data.get("edited_by", []):
@@ -987,6 +998,12 @@ class ChatAggregator:
                                 plan_id=plan_db_id,
                                 relationship="edited",
                             )
+                        else:
+                            logger.debug(
+                                "Plan %s references non-existent chat composer_id (edited): %s",
+                                plan_data["plan_id"],
+                                composer_id,
+                            )
 
                     # Link to chats that referenced the plan
                     for composer_id in plan_data.get("referenced_by", []):
@@ -996,6 +1013,12 @@ class ChatAggregator:
                                 chat_id=chat["id"],
                                 plan_id=plan_db_id,
                                 relationship="referenced",
+                            )
+                        else:
+                            logger.debug(
+                                "Plan %s references non-existent chat composer_id (referenced): %s",
+                                plan_data["plan_id"],
+                                composer_id,
                             )
 
                     stats["ingested"] += 1
