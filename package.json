@@ -1,0 +1,13 @@
+{
+  "name": "chatrxiv",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"python -m src web --reload\" \"cd web && npm run dev\"",
+    "dev:api": "python -m src web --reload",
+    "dev:web": "cd web && npm run dev"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}
