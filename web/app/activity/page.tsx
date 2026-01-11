@@ -176,8 +176,8 @@ export default function ActivityPage() {
                 </tr>
               </thead>
               <tbody>
-                {dailyData.map((day) => (
-                  <tr key={day.date} className="border-b border-border/50 hover:bg-muted/30">
+                {dailyData.map((day, index) => (
+                  <tr key={`${day.date}-${index}`} className="border-b border-border/50 hover:bg-muted/30">
                     <td className="p-2">{day.date}</td>
                     <td className="text-right p-2 font-medium text-primary">{formatCurrency(day.total_cost)}</td>
                     <td className="text-right p-2">{formatNumber(day.activity_count)}</td>
