@@ -3,6 +3,7 @@ Chats API routes.
 """
 
 import json
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -737,7 +738,7 @@ def summarize_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
         return {
             "summary": summary,
             "chat_id": chat_id,
-            "generated_at": datetime.utcnow().isoformat() + "Z",
+            "generated_at": datetime.now(timezone.utc).isoformat() + "Z",
         }
 
     except ImportError as e:
