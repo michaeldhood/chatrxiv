@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { fetchChat, summarizeChat, type ChatDetail, type Message } from '@/lib/api';
@@ -79,6 +79,13 @@ export default function ChatDetailPage() {
     .filter(idx => idx !== -1);
   
   // Jump navigation
+  const scrollToUserMessage = useCallback((index: number) => {
+    if (index >= 0 && index < userMessages.length && userMessagesRef.current[index]) {
+      userMessagesRef.current[index].scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setCurrentUserMessageIndex(index);
+    }
+  }, [userMessages.length]);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
@@ -98,14 +105,7 @@ export default function ChatDetailPage() {
     
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [currentUserMessageIndex, userMessages.length]);
-  
-  const scrollToUserMessage = (index: number) => {
-    if (index >= 0 && index < userMessages.length && userMessagesRef.current[index]) {
-      userMessagesRef.current[index].scrollIntoView({ behavior: 'smooth', block: 'start' });
-      setCurrentUserMessageIndex(index);
-    }
-  };
+  }, [currentUserMessageIndex, userMessages.length, scrollToUserMessage]);
   
   const toggleToolGroup = (index: number) => {
     setExpandedToolGroups(prev => {
