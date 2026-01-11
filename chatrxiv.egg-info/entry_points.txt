@@ -1,0 +1,2 @@
+[console_scripts]
+chatrxiv = src.cli:main

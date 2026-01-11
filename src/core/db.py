@@ -1763,6 +1763,17 @@ class ChatDatabase:
 
         self.conn.commit()
 
+    # BM25 column weights for unified_fts
+    # Columns (indexed only): content_type, title, message_text, tags, files
+    # We heavily weight title matches to ensure exact title matches rank at the top
+    BM25_WEIGHTS = (
+        0.5,   # content_type - low (always "chat", doesn't differentiate)
+        10.0,  # title - HIGH (key for matching chat by name)
+        1.0,   # message_text - baseline
+        3.0,   # tags - moderately boosted (semantic markers)
+        1.0,   # files - baseline
+    )
+
     def instant_search(
         self, query: str, limit: int = 20, sort_by: str = "relevance"
     ) -> List[Dict[str, Any]]:
@@ -1798,11 +1809,23 @@ class ChatDatabase:
         # e.g., "hello wor" -> 'hello wor*'
         fts_query = " ".join(terms[:-1] + [terms[-1] + "*"]) if terms else ""
 
+        # Clean query for title matching (used for boosting exact matches)
+        clean_query = query.strip().lower()
+
         # Determine sort order
+        # For relevance sorting, we use a compound ORDER BY:
+        # 1. Exact title match (highest priority)
+        # 2. Title starts with query
+        # 3. Title contains query
+        # 4. BM25 weighted score
         if sort_by == "date":
             order_clause = "ORDER BY c.created_at DESC"
         else:
-            order_clause = "ORDER BY rank"
+            # title_boost: 0 = exact match, 1 = starts with, 2 = contains, 3 = no title match
+            order_clause = "ORDER BY title_boost, rank"
+
+        # Build BM25 function call with column weights
+        bm25_call = f"bm25(unified_fts, {', '.join(str(w) for w in self.BM25_WEIGHTS)})"
 
         try:
             # Search with snippet generation
@@ -1820,7 +1843,13 @@ class ChatDatabase:
                     w.workspace_hash,
                     w.resolved_path,
                     snippet(unified_fts, 3, '<mark>', '</mark>', '...', 32) as snippet,
-                    bm25(unified_fts) as rank
+                    {bm25_call} as rank,
+                    CASE
+                        WHEN LOWER(c.title) = ? THEN 0
+                        WHEN LOWER(c.title) LIKE ? || '%' THEN 1
+                        WHEN LOWER(c.title) LIKE '%' || ? || '%' THEN 2
+                        ELSE 3
+                    END as title_boost
                 FROM unified_fts fts
                 INNER JOIN chats c ON fts.chat_id = c.id
                 LEFT JOIN workspaces w ON c.workspace_id = w.id
@@ -1828,7 +1857,7 @@ class ChatDatabase:
                 {order_clause}
                 LIMIT ?
             """,
-                (fts_query, limit),
+                (clean_query, clean_query, clean_query, fts_query, limit),
             )
 
             results = []
@@ -1913,11 +1942,22 @@ class ChatDatabase:
         # Add prefix matching to last term
         fts_query = " ".join(terms[:-1] + [terms[-1] + "*"]) if terms else ""
 
+        # Clean query for title matching (used for boosting exact matches)
+        clean_query = query.strip().lower()
+
         # Determine sort order
+        # For relevance sorting, we use a compound ORDER BY:
+        # 1. Exact title match (highest priority)
+        # 2. Title starts with query
+        # 3. Title contains query
+        # 4. BM25 weighted score
         if sort_by == "date":
             order_clause = "ORDER BY c.created_at DESC"
         else:
-            order_clause = "ORDER BY rank"
+            order_clause = "ORDER BY title_boost, rank"
+
+        # Build BM25 function call with column weights
+        bm25_call = f"bm25(unified_fts, {', '.join(str(w) for w in self.BM25_WEIGHTS)})"
 
         try:
             # Get total count first
@@ -1945,7 +1985,13 @@ class ChatDatabase:
                     w.workspace_hash,
                     w.resolved_path,
                     snippet(unified_fts, 3, '<mark>', '</mark>', '...', 64) as snippet,
-                    bm25(unified_fts) as rank
+                    {bm25_call} as rank,
+                    CASE
+                        WHEN LOWER(c.title) = ? THEN 0
+                        WHEN LOWER(c.title) LIKE ? || '%' THEN 1
+                        WHEN LOWER(c.title) LIKE '%' || ? || '%' THEN 2
+                        ELSE 3
+                    END as title_boost
                 FROM unified_fts fts
                 INNER JOIN chats c ON fts.chat_id = c.id
                 LEFT JOIN workspaces w ON c.workspace_id = w.id
@@ -1953,7 +1999,7 @@ class ChatDatabase:
                 {order_clause}
                 LIMIT ? OFFSET ?
             """,
-                (fts_query, limit, offset),
+                (clean_query, clean_query, clean_query, fts_query, limit, offset),
             )
 
             results = []
@@ -2281,6 +2327,9 @@ class ChatDatabase:
         # Add prefix matching to last term
         fts_query = " ".join(terms[:-1] + [terms[-1] + "*"]) if terms else ""
 
+        # Clean query for title matching (used for boosting exact matches)
+        clean_query = query.strip().lower()
+
         try:
             # Build filter conditions
             conditions = ["unified_fts MATCH ?"]
@@ -2328,10 +2377,18 @@ class ChatDatabase:
             total = cursor.fetchone()[0]
 
             # Determine sort order
+            # For relevance sorting, we use a compound ORDER BY:
+            # 1. Exact title match (highest priority)
+            # 2. Title starts with query
+            # 3. Title contains query
+            # 4. BM25 weighted score
             if sort_by == "date":
                 order_clause = "ORDER BY c.created_at DESC"
             else:
-                order_clause = "ORDER BY rank"
+                order_clause = "ORDER BY title_boost, rank"
+
+            # Build BM25 function call with column weights
+            bm25_call = f"bm25(unified_fts, {', '.join(str(w) for w in self.BM25_WEIGHTS)})"
 
             # Get results with snippets
             cursor.execute(
@@ -2347,7 +2404,13 @@ class ChatDatabase:
                     w.workspace_hash,
                     w.resolved_path,
                     snippet(unified_fts, 3, '<mark>', '</mark>', '...', 64) as snippet,
-                    bm25(unified_fts) as rank
+                    {bm25_call} as rank,
+                    CASE
+                        WHEN LOWER(c.title) = ? THEN 0
+                        WHEN LOWER(c.title) LIKE ? || '%' THEN 1
+                        WHEN LOWER(c.title) LIKE '%' || ? || '%' THEN 2
+                        ELSE 3
+                    END as title_boost
                 FROM unified_fts fts
                 INNER JOIN chats c ON fts.chat_id = c.id
                 LEFT JOIN workspaces w ON c.workspace_id = w.id
@@ -2355,7 +2418,7 @@ class ChatDatabase:
                 {order_clause}
                 LIMIT ? OFFSET ?
             """,
-                params + [limit, offset],
+                [clean_query, clean_query, clean_query] + params + [limit, offset],
             )
 
             results = []
