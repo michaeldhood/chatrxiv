@@ -21,6 +21,7 @@ export default function SearchPage() {
   const [selectedWorkspaces, setSelectedWorkspaces] = useState<number[]>(
     searchParams.get('workspaces')?.split(',').map(Number).filter(Boolean) || []
   );
+  const [filtersExpanded, setFiltersExpanded] = useState(false);
   
   const loadSearch = useCallback(async () => {
     setLoading(true);
@@ -117,13 +118,34 @@ export default function SearchPage() {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-6">
       {/* Facets Sidebar */}
-      <aside className="lg:sticky lg:top-6 h-fit max-h-[calc(100vh-120px)] overflow-y-auto">
-        <div className="bg-card border border-border rounded-xl p-4 space-y-4">
-          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide pb-2 border-b border-border">
-            Filters
-          </h3>
+      <aside className="lg:sticky lg:top-6 h-fit lg:max-h-[calc(100vh-120px)] lg:overflow-y-auto">
+        <div className="bg-card border border-border rounded-xl overflow-hidden">
+          {/* Filter Header with Toggle Button */}
+          <div className="p-4 border-b border-border">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                Filters
+              </h3>
+              <button
+                onClick={() => setFiltersExpanded(!filtersExpanded)}
+                className="lg:hidden px-2 py-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                aria-label={filtersExpanded ? 'Collapse filters' : 'Expand filters'}
+              >
+                <span className={`inline-block transition-transform duration-200 ${filtersExpanded ? 'rotate-180' : 'rotate-0'}`}>
+                  ▼
+                </span>
+              </button>
+            </div>
+          </div>
           
-          {/* Tag Facets */}
+          {/* Filter Content - Collapsible on narrow screens */}
+          <div 
+            className={`transition-all duration-300 ease-in-out ${
+              filtersExpanded ? 'max-h-[400px] overflow-y-auto' : 'max-h-0 overflow-hidden'
+            } lg:max-h-none lg:overflow-y-auto`}
+          >
+            <div className="p-4 space-y-4">
+              {/* Tag Facets */}
           {Object.entries(groupedFacets).map(([dimension, tags]) => {
             if (Object.keys(tags).length === 0) return null;
             
@@ -205,6 +227,8 @@ export default function SearchPage() {
               </div>
             </div>
           )}
+            </div>
+          </div>
         </div>
       </aside>
       
