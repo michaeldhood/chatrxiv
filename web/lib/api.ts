@@ -143,6 +143,47 @@ export interface FilterOptionsResponse {
   modes: FilterOption[];
 }
 
+export interface ActivityRecord {
+  id: number;
+  date?: string | null;
+  kind: string;
+  model?: string | null;
+  max_mode?: boolean | null;
+  input_tokens_with_cache?: number | null;
+  input_tokens_no_cache?: number | null;
+  cache_read_tokens?: number | null;
+  output_tokens?: number | null;
+  total_tokens?: number | null;
+  cost?: number | null;
+}
+
+export interface ModelCostData {
+  cost: number;
+  count: number;
+}
+
+export interface ActivitySummary {
+  total_cost: number;
+  total_input_tokens_with_cache: number;
+  total_input_tokens_no_cache: number;
+  total_cache_read_tokens: number;
+  total_output_tokens: number;
+  total_tokens: number;
+  activity_by_kind: Record<string, number>;
+  cost_by_model: Record<string, ModelCostData>;
+}
+
+export interface DailyActivityAggregate {
+  date: string;
+  total_cost: number;
+  input_tokens_with_cache: number;
+  input_tokens_no_cache: number;
+  cache_read_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  activity_count: number;
+}
+
 /**
  * Fetch available filter options (sources, modes) with counts.
  */
@@ -280,6 +321,65 @@ export async function summarizeChat(id: number): Promise<{ summary: string; chat
   if (!res.ok) {
     const error = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(error.detail || `Failed to summarize chat: ${res.statusText}`);
+  }
+  return res.json();
+}
+
+/**
+ * Fetch activity records with optional date range filtering.
+ */
+export async function fetchActivity(
+  start_date?: string,
+  end_date?: string,
+  limit: number = 100,
+  offset: number = 0
+): Promise<ActivityRecord[]> {
+  const params = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+  });
+  if (start_date) params.set('start_date', start_date);
+  if (end_date) params.set('end_date', end_date);
+  
+  const res = await fetch(`${API_BASE}/api/activity?${params}`);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch activity: ${res.statusText}`);
+  }
+  return res.json();
+}
+
+/**
+ * Fetch activity summary statistics.
+ */
+export async function fetchActivitySummary(
+  start_date?: string,
+  end_date?: string
+): Promise<ActivitySummary> {
+  const params = new URLSearchParams();
+  if (start_date) params.set('start_date', start_date);
+  if (end_date) params.set('end_date', end_date);
+  
+  const res = await fetch(`${API_BASE}/api/activity/summary?${params}`);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch activity summary: ${res.statusText}`);
+  }
+  return res.json();
+}
+
+/**
+ * Fetch daily aggregated activity data for charting.
+ */
+export async function fetchDailyActivity(
+  start_date?: string,
+  end_date?: string
+): Promise<DailyActivityAggregate[]> {
+  const params = new URLSearchParams();
+  if (start_date) params.set('start_date', start_date);
+  if (end_date) params.set('end_date', end_date);
+  
+  const res = await fetch(`${API_BASE}/api/activity/daily?${params}`);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch daily activity: ${res.statusText}`);
   }
   return res.json();
 }

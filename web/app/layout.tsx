@@ -51,6 +51,12 @@ export default function RootLayout({
                 >
                   Database View
                 </Link>
+                <Link
+                  href="/activity"
+                  className="text-primary hover:text-primary/80 font-medium text-sm transition-colors"
+                >
+                  Activity & Cost
+                </Link>
               </nav>
               <SearchBar />
             </header>
