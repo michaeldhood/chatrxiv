@@ -198,7 +198,9 @@ def extract_plan_content(raw_json: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     }
 
 
-def extract_terminal_command(raw_json: Dict[str, Any], created_at: Optional[str] = None) -> Optional[Dict[str, Any]]:
+def extract_terminal_command(
+    raw_json: Dict[str, Any], created_at: Optional[str] = None
+) -> Optional[Dict[str, Any]]:
     """
     Extract terminal command and output from run_terminal_cmd tool call bubble.
 
@@ -240,7 +242,7 @@ def extract_terminal_command(raw_json: Dict[str, Any], created_at: Optional[str]
                 params_dict = {}
         else:
             params_dict = params or {}
-        
+
         # Extract command from params
         command = params_dict.get("command", "")
         if not command and raw_args:
@@ -300,6 +302,25 @@ def extract_tool_result(raw_json: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     tool_name = tool_former.get("name", "")
     status = tool_former.get("status")
 
+    # Normalize top_files for grep results - ensure it's always a valid array
+    top_files_raw = result.get("topFiles") or result.get("top_files") or []
+    if not isinstance(top_files_raw, list):
+        top_files_raw = []
+
+    # Normalize structure - handle both camelCase and snake_case
+    top_files = []
+    for item in top_files_raw:
+        if isinstance(item, dict):
+            normalized = {
+                "uri": item.get("uri") or item.get("file") or item.get("path") or "",
+                "matchCount": item.get("matchCount")
+                or item.get("match_count")
+                or item.get("count")
+                or 0,
+            }
+            if normalized["uri"]:  # Only add if we have a URI
+                top_files.append(normalized)
+
     return {
         "tool_name": tool_name,
         "status": status,
@@ -307,7 +328,7 @@ def extract_tool_result(raw_json: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "contents": result.get("contents"),  # File read
         "diff": result.get("diff"),  # File write
         "total_matches": result.get("totalMatches"),  # Grep
-        "top_files": result.get("topFiles"),  # Grep
+        "top_files": top_files,  # Grep - normalized array
         "error": result.get("error") or result.get("rejected"),
     }
 

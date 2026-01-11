@@ -112,15 +112,19 @@ export function ToolResult({ result }: ToolResultProps) {
             <p className="mb-2">
               Found <strong>{result.total_matches}</strong> match{result.total_matches !== 1 ? 'es' : ''}
             </p>
-            {result.top_files && result.top_files.length > 0 && (
+            {Array.isArray(result.top_files) && result.top_files.length > 0 && (
               <div>
                 <p className="text-xs font-semibold mb-1 text-muted-foreground">Top files:</p>
                 <ul className="space-y-1">
-                  {result.top_files.map((file, idx) => (
-                    <li key={idx} className="text-xs font-mono text-accent-orange">
-                      {file.uri} ({file.matchCount} match{file.matchCount !== 1 ? 'es' : ''})
-                    </li>
-                  ))}
+                  {result.top_files.map((file: any, idx: number) => {
+                    const uri = file?.uri || file?.file || file?.path || 'Unknown file';
+                    const matchCount = file?.matchCount || file?.match_count || file?.count || 0;
+                    return (
+                      <li key={idx} className="text-xs font-mono text-accent-orange">
+                        {uri} ({matchCount} match{matchCount !== 1 ? 'es' : ''})
+                      </li>
+                    );
+                  })}
                 </ul>
               </div>
             )}
