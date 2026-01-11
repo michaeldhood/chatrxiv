@@ -451,11 +451,16 @@ class ActivityVisualizer:
 
         # 2. Cost by model (top right)
         ax2 = fig.add_subplot(gs[0, 1])
+        model_where_clause = where_clause
+        if model_where_clause:
+            model_where_clause += " AND model IS NOT NULL"
+        else:
+            model_where_clause = "WHERE model IS NOT NULL"
         cursor.execute(
             f"""
             SELECT model, COALESCE(SUM(cost), 0) as total_cost
             FROM cursor_activity
-            {where_clause} AND model IS NOT NULL
+            {model_where_clause}
             GROUP BY model
             ORDER BY total_cost DESC
             LIMIT 10
