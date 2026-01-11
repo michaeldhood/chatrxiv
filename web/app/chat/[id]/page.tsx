@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { fetchChat, summarizeChat, type ChatDetail, type Message } from '@/lib/api';
+import { fetchChat, summarizeChat, type ChatDetail, type Message, type PlanContent as PlanContentType, type PlanInfo } from '@/lib/api';
 import { Message as MessageComponent } from '@/components/message';
 import { PlanContent } from '@/components/plan-content';
+import { PlanCreatedIndicator } from '@/components/plan-created-indicator';
 import { TerminalCommand } from '@/components/terminal-command';
 import { ToolResult } from '@/components/tool-result';
 import { Markdown } from '@/components/markdown';
@@ -13,7 +14,6 @@ import { formatDistanceToNow } from 'date-fns';
 
 export default function ChatDetailPage() {
   const params = useParams();
-  const router = useRouter();
   const chatId = Number(params.id);
   const [chat, setChat] = useState<ChatDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -32,9 +32,21 @@ export default function ChatDetailPage() {
     'file-read': true,
   });
   
+  const loadChat = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await fetchChat(chatId);
+      setChat(data);
+    } catch (error) {
+      console.error('Failed to load chat:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [chatId]);
+
   useEffect(() => {
     loadChat();
-  }, [chatId]);
+  }, [loadChat]);
   
   // Load filter preferences from localStorage
   useEffect(() => {
@@ -57,18 +69,6 @@ export default function ChatDetailPage() {
       console.debug('Could not save filter preferences:', e);
     }
   }, [filterState]);
-  
-  const loadChat = async () => {
-    setLoading(true);
-    try {
-      const data = await fetchChat(chatId);
-      setChat(data);
-    } catch (error) {
-      console.error('Failed to load chat:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
   
   // Use processed messages from backend (includes classification)
   const processedMessages = chat?.processed_messages || [];
@@ -173,7 +173,7 @@ export default function ChatDetailPage() {
     setSummaryError(null);
     
     try {
-      const result = await summarizeChat(chat.id);
+      await summarizeChat(chat.id);
       // Reload chat to get updated summary
       await loadChat();
     } catch (error) {
@@ -513,7 +513,7 @@ export default function ChatDetailPage() {
                       </button>
                       {isExpanded && (
                         <div className="px-4 py-4 border-t border-border space-y-2">
-                          {item.tool_calls.map((toolMsg: any, toolIdx: number) => (
+                          {item.tool_calls.map((toolMsg: Message, toolIdx: number) => (
                             <div key={toolIdx} className="space-y-3">
                               <div className="p-3 bg-card rounded-md border border-border text-sm text-muted-foreground">
                                 <strong className="text-accent-purple font-semibold">
@@ -547,11 +547,11 @@ export default function ChatDetailPage() {
                   );
                 } else if (item.type === 'plan_content' && item.plan) {
                   return (
-                    <PlanContent key={`plan-content-${index}`} plan={item.plan as any} />
+                    <PlanContent key={`plan-content-${index}`} plan={item.plan as PlanContentType} />
                   );
                 } else if (item.type === 'plan_created' && item.plan) {
                   return (
-                    <PlanCreatedIndicator key={`plan-created-${index}`} plan={item.plan as any} />
+                    <PlanCreatedIndicator key={`plan-created-${index}`} plan={item.plan as PlanInfo} />
                   );
                 } else if (item.type === 'terminal_command' && item.terminal_command) {
                   return (
