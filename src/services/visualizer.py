@@ -106,13 +106,15 @@ class ActivityVisualizer:
 
         # Create chart
         fig, ax = plt.subplots(figsize=(12, 6))
-        ax.plot(periods, costs, marker="o", linewidth=2, markersize=6)
-        ax.fill_between(range(len(periods)), costs, alpha=0.3)
+        # Use numeric indices for both plot and fill_between
+        x_indices = range(len(periods))
+        ax.plot(x_indices, costs, marker="o", linewidth=2, markersize=6)
+        ax.fill_between(x_indices, costs, alpha=0.3)
         ax.set_xlabel("Date", fontsize=12)
         ax.set_ylabel("Cost (USD)", fontsize=12)
         ax.set_title("Cost Over Time", fontsize=14, fontweight="bold")
         ax.grid(True, alpha=0.3)
-        plt.xticks(range(len(periods)), periods, rotation=45, ha="right")
+        plt.xticks(x_indices, periods, rotation=45, ha="right")
 
         # Format y-axis as currency
         ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f"${x:.2f}"))
@@ -439,8 +441,13 @@ class ActivityVisualizer:
         if cost_data:
             dates = [row[0] for row in cost_data]
             costs = [row[1] or 0.0 for row in cost_data]
-            ax1.plot(dates, costs, marker="o", linewidth=2)
-            ax1.fill_between(range(len(dates)), costs, alpha=0.3)
+            # Use numeric indices for both plot and fill_between
+            x_indices = range(len(dates))
+            ax1.plot(x_indices, costs, marker="o", linewidth=2)
+            ax1.fill_between(x_indices, costs, alpha=0.3)
+            # Set date labels on x-axis
+            ax1.set_xticks(x_indices)
+            ax1.set_xticklabels(dates, rotation=45, ha="right")
         ax1.set_title("Cost Over Time", fontweight="bold")
         ax1.set_xlabel("Date")
         ax1.set_ylabel("Cost (USD)")
