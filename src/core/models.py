@@ -108,6 +108,8 @@ class Chat:
     last_updated_at: Optional[datetime] = None
     source: str = "cursor"  # "cursor" or "legacy"
     summary: Optional[str] = None  # LLM-generated summary
+    model: Optional[str] = None  # AI model used (e.g., "claude-3-5-sonnet-20241022")
+    estimated_cost: Optional[float] = None  # Estimated cost in USD
     messages: List[Message] = None
     relevant_files: List[str] = None
 
@@ -130,4 +132,38 @@ class Chat:
             if self.last_updated_at
             else None,
             "source": self.source,
+            "model": self.model,
+            "estimated_cost": self.estimated_cost,
+        }
+
+
+@dataclass
+class CursorActivity:
+    """Represents a cursor activity/usage event from exported CSV data."""
+
+    id: Optional[int] = None
+    date: Optional[datetime] = None
+    kind: str = ""  # e.g., "Included"
+    model: Optional[str] = None
+    max_mode: Optional[bool] = None
+    input_tokens_with_cache: Optional[int] = None
+    input_tokens_no_cache: Optional[int] = None
+    cache_read_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+    total_tokens: Optional[int] = None
+    cost: Optional[float] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for database storage."""
+        return {
+            "date": self.date.isoformat() if self.date else None,
+            "kind": self.kind,
+            "model": self.model,
+            "max_mode": self.max_mode,
+            "input_tokens_with_cache": self.input_tokens_with_cache,
+            "input_tokens_no_cache": self.input_tokens_no_cache,
+            "cache_read_tokens": self.cache_read_tokens,
+            "output_tokens": self.output_tokens,
+            "total_tokens": self.total_tokens,
+            "cost": self.cost,
         }

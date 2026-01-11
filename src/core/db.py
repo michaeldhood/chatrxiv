@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.core.config import get_default_db_path
-from src.core.models import Chat, Workspace
+from src.core.models import Chat, Workspace, CursorActivity
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +107,16 @@ class ChatDatabase:
             cursor.execute("ALTER TABLE chats ADD COLUMN summary TEXT")
             logger.info("Added summary column to chats table")
 
+        # Migration: Add model column if it doesn't exist
+        if "model" not in columns:
+            cursor.execute("ALTER TABLE chats ADD COLUMN model TEXT")
+            logger.info("Added model column to chats table")
+
+        # Migration: Add estimated_cost column if it doesn't exist
+        if "estimated_cost" not in columns:
+            cursor.execute("ALTER TABLE chats ADD COLUMN estimated_cost REAL")
+            logger.info("Added estimated_cost column to chats table")
+
         # Migration: Add project_id column to workspaces if it doesn't exist
         cursor.execute("PRAGMA table_info(workspaces)")
         workspace_columns = [row[1] for row in cursor.fetchall()]
@@ -182,6 +192,25 @@ class ChatDatabase:
                 PRIMARY KEY (chat_id, plan_id, relationship),
                 FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE,
                 FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE
+            )
+        """)
+
+        # Cursor activity table for tracking usage/activity data from CSV exports
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS cursor_activity (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                model TEXT,
+                max_mode INTEGER,
+                input_tokens_with_cache INTEGER,
+                input_tokens_no_cache INTEGER,
+                cache_read_tokens INTEGER,
+                output_tokens INTEGER,
+                total_tokens INTEGER,
+                cost REAL,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(date, model, kind)
             )
         """)
 
@@ -279,6 +308,18 @@ class ChatDatabase:
         )
         cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_chat_plans_plan ON chat_plans(plan_id)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_activity_date ON cursor_activity(date)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_activity_model ON cursor_activity(model)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_chats_model ON chats(model)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_chats_cost ON chats(estimated_cost)"
         )
 
         # Check if unified_fts needs to be rebuilt (migration for existing databases)
@@ -388,7 +429,7 @@ class ChatDatabase:
             cursor.execute(
                 """
                 UPDATE chats 
-                SET workspace_id = ?, title = ?, mode = ?, created_at = ?, last_updated_at = ?, source = ?, messages_count = ?
+                SET workspace_id = ?, title = ?, mode = ?, created_at = ?, last_updated_at = ?, source = ?, messages_count = ?, model = ?, estimated_cost = ?
                 WHERE id = ?
             """,
                 (
@@ -399,6 +440,8 @@ class ChatDatabase:
                     chat.last_updated_at.isoformat() if chat.last_updated_at else None,
                     chat.source,
                     messages_count,
+                    chat.model,
+                    chat.estimated_cost,
                     chat_id,
                 ),
             )
@@ -409,8 +452,8 @@ class ChatDatabase:
             # Insert
             cursor.execute(
                 """
-                INSERT INTO chats (cursor_composer_id, workspace_id, title, mode, created_at, last_updated_at, source, messages_count)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO chats (cursor_composer_id, workspace_id, title, mode, created_at, last_updated_at, source, messages_count, model, estimated_cost)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     chat.cursor_composer_id,
@@ -421,6 +464,8 @@ class ChatDatabase:
                     chat.last_updated_at.isoformat() if chat.last_updated_at else None,
                     chat.source,
                     messages_count,
+                    chat.model,
+                    chat.estimated_cost,
                 ),
             )
             chat_id = cursor.lastrowid
@@ -562,9 +607,9 @@ class ChatDatabase:
         # Get chat - explicitly select columns to handle schema migration
         cursor.execute(
             """
-            SELECT c.id, c.cursor_composer_id, c.workspace_id, c.title, c.mode, 
+            SELECT c.id, c.cursor_composer_id, c.workspace_id, c.title, c.mode,
                    c.created_at, c.last_updated_at, c.source, c.messages_count,
-                   c.summary, w.workspace_hash, w.resolved_path
+                   c.summary, c.model, c.estimated_cost, w.workspace_hash, w.resolved_path
             FROM chats c
             LEFT JOIN workspaces w ON c.workspace_id = w.id
             WHERE c.id = ?
@@ -587,8 +632,10 @@ class ChatDatabase:
             "source": row[7],
             "messages_count": row[8] if len(row) > 8 else 0,  # Handle migration case
             "summary": row[9] if len(row) > 9 else None,  # Handle migration case
-            "workspace_hash": row[10] if len(row) > 10 else None,
-            "workspace_path": row[11] if len(row) > 11 else None,
+            "model": row[10] if len(row) > 10 else None,  # Handle migration case
+            "estimated_cost": row[11] if len(row) > 11 else None,  # Handle migration case
+            "workspace_hash": row[12] if len(row) > 12 else None,
+            "workspace_path": row[13] if len(row) > 13 else None,
             "messages": [],
             "files": [],
         }
@@ -2519,6 +2566,220 @@ class ChatDatabase:
         self.conn.commit()
         logger.info("Deleted %d empty chats", deleted)
         return deleted
+
+    def upsert_activity(self, activity: CursorActivity) -> int:
+        """
+        Insert or update a cursor activity record.
+
+        Uses INSERT OR IGNORE to prevent duplicates based on unique constraint.
+
+        Parameters
+        ----
+        activity : CursorActivity
+            Activity to upsert
+
+        Returns
+        ----
+        int
+            Activity ID (or existing ID if duplicate)
+        """
+        cursor = self.conn.cursor()
+
+        cursor.execute("""
+            INSERT OR IGNORE INTO cursor_activity 
+            (date, kind, model, max_mode, input_tokens_with_cache, input_tokens_no_cache,
+             cache_read_tokens, output_tokens, total_tokens, cost)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            activity.date.isoformat() if activity.date else None,
+            activity.kind,
+            activity.model,
+            1 if activity.max_mode else 0 if activity.max_mode is False else None,
+            activity.input_tokens_with_cache,
+            activity.input_tokens_no_cache,
+            activity.cache_read_tokens,
+            activity.output_tokens,
+            activity.total_tokens,
+            activity.cost,
+        ))
+
+        # If insert was ignored (duplicate), get the existing ID
+        if cursor.lastrowid == 0:
+            cursor.execute("""
+                SELECT id FROM cursor_activity
+                WHERE date = ? AND model = ? AND kind = ?
+            """, (
+                activity.date.isoformat() if activity.date else None,
+                activity.model,
+                activity.kind,
+            ))
+            row = cursor.fetchone()
+            activity_id = row[0] if row else None
+        else:
+            activity_id = cursor.lastrowid
+
+        self.conn.commit()
+        return activity_id
+
+    def get_activity_summary(
+        self, start_date: Optional[str] = None, end_date: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Get summary statistics for cursor activity.
+
+        Parameters
+        ----
+        start_date : str, optional
+            Start date (ISO format)
+        end_date : str, optional
+            End date (ISO format)
+
+        Returns
+        ----
+        Dict[str, Any]
+            Summary statistics
+        """
+        cursor = self.conn.cursor()
+
+        conditions = []
+        params = []
+
+        if start_date:
+            conditions.append("date >= ?")
+            params.append(start_date)
+        if end_date:
+            conditions.append("date <= ?")
+            params.append(end_date)
+
+        where_clause = ""
+        if conditions:
+            where_clause = "WHERE " + " AND ".join(conditions)
+
+        # Total cost
+        cursor.execute(f"""
+            SELECT COALESCE(SUM(cost), 0) FROM cursor_activity {where_clause}
+        """, params)
+        total_cost = cursor.fetchone()[0] or 0.0
+
+        # Total tokens
+        cursor.execute(f"""
+            SELECT 
+                COALESCE(SUM(input_tokens_with_cache), 0),
+                COALESCE(SUM(input_tokens_no_cache), 0),
+                COALESCE(SUM(cache_read_tokens), 0),
+                COALESCE(SUM(output_tokens), 0),
+                COALESCE(SUM(total_tokens), 0)
+            FROM cursor_activity {where_clause}
+        """, params)
+        row = cursor.fetchone()
+        total_input_with_cache = row[0] or 0
+        total_input_no_cache = row[1] or 0
+        total_cache_read = row[2] or 0
+        total_output_tokens = row[3] or 0
+        total_tokens = row[4] or 0
+
+        # Activity count by kind
+        cursor.execute(f"""
+            SELECT kind, COUNT(*) 
+            FROM cursor_activity {where_clause}
+            GROUP BY kind
+        """, params)
+        activity_by_kind = {row[0]: row[1] for row in cursor.fetchall()}
+
+        # Cost by model
+        cursor.execute(f"""
+            SELECT model, COALESCE(SUM(cost), 0), COUNT(*)
+            FROM cursor_activity {where_clause}
+            WHERE model IS NOT NULL
+            GROUP BY model
+        """, params)
+        cost_by_model = {
+            row[0]: {"cost": row[1] or 0.0, "count": row[2]} for row in cursor.fetchall()
+        }
+
+        return {
+            "total_cost": total_cost,
+            "total_input_tokens_with_cache": total_input_with_cache,
+            "total_input_tokens_no_cache": total_input_no_cache,
+            "total_cache_read_tokens": total_cache_read,
+            "total_output_tokens": total_output_tokens,
+            "total_tokens": total_tokens,
+            "activity_by_kind": activity_by_kind,
+            "cost_by_model": cost_by_model,
+        }
+
+    def get_activity_by_date_range(
+        self,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        limit: Optional[int] = None,
+        offset: int = 0,
+    ) -> List[Dict[str, Any]]:
+        """
+        Get activity records within a date range.
+
+        Parameters
+        ----
+        start_date : str, optional
+            Start date (ISO format)
+        end_date : str, optional
+            End date (ISO format)
+        limit : int, optional
+            Maximum number of records to return
+        offset : int
+            Number of records to skip
+
+        Returns
+        ----
+        List[Dict[str, Any]]
+            List of activity records
+        """
+        cursor = self.conn.cursor()
+
+        conditions = []
+        params = []
+
+        if start_date:
+            conditions.append("date >= ?")
+            params.append(start_date)
+        if end_date:
+            conditions.append("date <= ?")
+            params.append(end_date)
+
+        where_clause = ""
+        if conditions:
+            where_clause = "WHERE " + " AND ".join(conditions)
+
+        limit_clause = ""
+        if limit:
+            limit_clause = f"LIMIT {limit} OFFSET {offset}"
+
+        cursor.execute(f"""
+            SELECT id, date, kind, model, max_mode, input_tokens_with_cache,
+                   input_tokens_no_cache, cache_read_tokens, output_tokens,
+                   total_tokens, cost
+            FROM cursor_activity
+            {where_clause}
+            ORDER BY date DESC
+            {limit_clause}
+        """, params)
+
+        results = []
+        for row in cursor.fetchall():
+            results.append({
+                "id": row[0],
+                "date": row[1],
+                "kind": row[2],
+                "model": row[3],
+                "max_mode": bool(row[4]) if row[4] is not None else None,
+                "input_tokens_with_cache": row[5],
+                "input_tokens_no_cache": row[6],
+                "cache_read_tokens": row[7],
+                "output_tokens": row[8],
+                "total_tokens": row[9],
+                "cost": row[10],
+            })
+        return results
 
     def rebuild_search_index(self):
         """

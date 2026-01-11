@@ -13,7 +13,7 @@ from typing import Optional
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.api.routes import chats, search, stream
+from src.api.routes import activity, chats, search, stream
 
 logger = logging.getLogger(__name__)
 
@@ -109,3 +109,4 @@ app.add_middleware(
 app.include_router(chats.router, prefix="/api", tags=["chats"])
 app.include_router(search.router, prefix="/api", tags=["search"])
 app.include_router(stream.router, prefix="/api", tags=["stream"])
+app.include_router(activity.router, prefix="/api", tags=["activity"])

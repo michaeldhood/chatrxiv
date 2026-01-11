@@ -15,6 +15,9 @@ from src.core.config import get_cursor_workspace_storage_path
 from src.viewer import list_chat_files, find_chat_file, display_chat_file
 from src.cli.common import output_dir_option, format_option, db_option
 from src.cli.orchestrators.batch import BatchOrchestrator
+from src.services.activity_loader import ActivityLoader
+from src.services.visualizer import ActivityVisualizer
+from src.services.cost_estimator import CostEstimator
 
 
 @click.command()
@@ -296,6 +299,186 @@ def batch(ctx, extract, convert, tag, format, output_dir, db_path):
         
     except Exception as e:
         click.secho(f"Error during batch operation: {e}", fg='red', err=True)
+        if ctx.obj.verbose:
+            import traceback
+            click.echo(traceback.format_exc(), err=True)
+        raise click.Abort()
+
+
+@click.command('load-activity')
+@click.argument('file_path', type=click.Path(exists=True))
+@db_option
+@click.pass_context
+def load_activity(ctx, file_path, db_path):
+    """
+    Load cursor activity data from a CSV file.
+    
+    The file should be exported from Cursor and contain columns:
+    Date, Kind, Model, Max Mode, Input (w/ Cache Write), Input (w/o Cache Write),
+    Cache Read, Output Tokens, Total Tokens, Cost
+    """
+    if db_path:
+        ctx.obj.db_path = db_path
+    db = ctx.obj.get_db()
+    
+    try:
+        loader = ActivityLoader(db)
+        
+        file_path_obj = Path(file_path)
+        if file_path_obj.suffix.lower() != '.csv':
+            click.secho(f"Expected CSV file, got: {file_path_obj.suffix}", fg='yellow', err=True)
+        
+        count = loader.load_from_csv(file_path)
+        
+        click.secho(f"Loaded {count} activity records", fg='green')
+        
+    except Exception as e:
+        click.secho(f"Error loading activity data: {e}", fg='red', err=True)
+        if ctx.obj.verbose:
+            import traceback
+            click.echo(traceback.format_exc(), err=True)
+        raise click.Abort()
+
+
+@click.command('visualize')
+@click.option(
+    '--output-dir', '-o',
+    type=click.Path(),
+    default='visualizations',
+    help='Output directory for charts (default: visualizations)'
+)
+@click.option(
+    '--start-date',
+    type=str,
+    help='Start date (ISO format: YYYY-MM-DD)'
+)
+@click.option(
+    '--end-date',
+    type=str,
+    help='End date (ISO format: YYYY-MM-DD)'
+)
+@click.option(
+    '--chart',
+    type=click.Choice(['cost-over-time', 'cost-by-model', 'activity-timeline', 'cost-distribution', 'cache-efficiency', 'dashboard', 'all']),
+    default='dashboard',
+    help='Type of chart to generate (default: dashboard)'
+)
+@db_option
+@click.pass_context
+def visualize(ctx, output_dir, start_date, end_date, chart, db_path):
+    """
+    Generate visualizations of cursor activity and cost data.
+    
+    Creates charts showing cost trends, model usage, activity patterns, etc.
+    """
+    if db_path:
+        ctx.obj.db_path = db_path
+    db = ctx.obj.get_db()
+    
+    try:
+        visualizer = ActivityVisualizer(db, output_dir)
+        
+        charts_generated = []
+        
+        if chart in ['cost-over-time', 'all']:
+            click.echo("Generating cost over time chart...")
+            filepath = visualizer.create_cost_over_time_chart(start_date, end_date)
+            if filepath:
+                charts_generated.append(filepath)
+        
+        if chart in ['cost-by-model', 'all']:
+            click.echo("Generating cost by model chart...")
+            filepath = visualizer.create_cost_by_model_chart()
+            if filepath:
+                charts_generated.append(filepath)
+        
+        if chart in ['activity-timeline', 'all']:
+            click.echo("Generating activity timeline chart...")
+            filepath = visualizer.create_activity_timeline_chart(start_date, end_date)
+            if filepath:
+                charts_generated.append(filepath)
+        
+        if chart in ['cost-distribution', 'all']:
+            click.echo("Generating chat cost distribution chart...")
+            filepath = visualizer.create_chat_cost_distribution_chart()
+            if filepath:
+                charts_generated.append(filepath)
+        
+        if chart in ['cache-efficiency', 'all']:
+            click.echo("Generating cache efficiency chart...")
+            filepath = visualizer.create_cache_efficiency_chart()
+            if filepath:
+                charts_generated.append(filepath)
+        
+        if chart in ['dashboard', 'all']:
+            click.echo("Generating comprehensive dashboard...")
+            filepath = visualizer.create_summary_dashboard(start_date, end_date)
+            if filepath:
+                charts_generated.append(filepath)
+        
+        if charts_generated:
+            click.secho(f"\nGenerated {len(charts_generated)} chart(s):", fg='green')
+            for filepath in charts_generated:
+                click.echo(f"  {filepath}")
+        else:
+            click.secho("No charts generated. Check if you have activity data loaded.", fg='yellow')
+        
+    except Exception as e:
+        click.secho(f"Error generating visualizations: {e}", fg='red', err=True)
+        if ctx.obj.verbose:
+            import traceback
+            click.echo(traceback.format_exc(), err=True)
+        raise click.Abort()
+
+
+@click.command('estimate-costs')
+@click.option(
+    '--update-existing',
+    is_flag=True,
+    help='Update costs even if already calculated'
+)
+@db_option
+@click.pass_context
+def estimate_costs(ctx, update_existing, db_path):
+    """
+    Estimate costs for all chats based on model and message count.
+    
+    Uses pricing information for various AI models to calculate estimated costs.
+    """
+    if db_path:
+        ctx.obj.db_path = db_path
+    db = ctx.obj.get_db()
+    
+    try:
+        estimator = CostEstimator()
+        
+        if update_existing:
+            click.echo("Updating costs for all chats...")
+        else:
+            click.echo("Estimating costs for chats without existing estimates...")
+        
+        updated_count = estimator.update_chat_costs(db, update_existing=update_existing)
+        
+        # Get summary
+        cursor = db.conn.cursor()
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as total_chats,
+                SUM(estimated_cost) as total_cost,
+                AVG(estimated_cost) as avg_cost
+            FROM chats
+            WHERE estimated_cost IS NOT NULL
+        """)
+        row = cursor.fetchone()
+        
+        click.secho(f"\nUpdated {updated_count} chats", fg='green')
+        if row and row[0] > 0:
+            click.echo(f"Total chats with cost estimates: {row[0]}")
+            click.echo(f"Total estimated cost: ${row[1] or 0:.2f}")
+            click.echo(f"Average cost per chat: ${row[2] or 0:.4f}")
+        
+    except Exception as e:
+        click.secho(f"Error estimating costs: {e}", fg='red', err=True)
         if ctx.obj.verbose:
             import traceback
             click.echo(traceback.format_exc(), err=True)

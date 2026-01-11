@@ -164,3 +164,52 @@ class FilterOptionsResponse(BaseModel):
 
     sources: List[FilterOption] = Field(default_factory=list)
     modes: List[FilterOption] = Field(default_factory=list)
+
+
+class ActivityRecord(BaseModel):
+    """Individual activity record from cursor activity table."""
+
+    id: int
+    date: Optional[str] = None
+    kind: str
+    model: Optional[str] = None
+    max_mode: Optional[bool] = None
+    input_tokens_with_cache: Optional[int] = None
+    input_tokens_no_cache: Optional[int] = None
+    cache_read_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+    total_tokens: Optional[int] = None
+    cost: Optional[float] = None
+
+
+class ModelCostData(BaseModel):
+    """Cost data for a specific model."""
+
+    cost: float
+    count: int
+
+
+class ActivitySummary(BaseModel):
+    """Summary statistics for cursor activity."""
+
+    total_cost: float
+    total_input_tokens_with_cache: int
+    total_input_tokens_no_cache: int
+    total_cache_read_tokens: int
+    total_output_tokens: int
+    total_tokens: int
+    activity_by_kind: Dict[str, int] = Field(default_factory=dict)
+    cost_by_model: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
+
+
+class DailyActivityAggregate(BaseModel):
+    """Daily aggregated activity data for charting."""
+
+    date: str
+    total_cost: float
+    input_tokens_with_cache: int
+    input_tokens_no_cache: int
+    cache_read_tokens: int
+    output_tokens: int
+    total_tokens: int
+    activity_count: int
