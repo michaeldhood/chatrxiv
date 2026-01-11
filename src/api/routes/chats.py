@@ -737,7 +737,7 @@ def summarize_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
         return {
             "summary": summary,
             "chat_id": chat_id,
-            "generated_at": chat.get("created_at"),  # Could add timestamp here
+            "generated_at": datetime.utcnow().isoformat() + "Z",
         }
 
     except ImportError as e:

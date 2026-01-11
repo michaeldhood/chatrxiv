@@ -549,6 +549,10 @@ export default function ChatDetailPage() {
                   return (
                     <PlanContent key={`plan-content-${index}`} plan={item.plan as any} />
                   );
+                } else if (item.type === 'plan_created' && item.plan) {
+                  return (
+                    <PlanCreatedIndicator key={`plan-created-${index}`} plan={item.plan as any} />
+                  );
                 } else if (item.type === 'terminal_command' && item.terminal_command) {
                   return (
                     <TerminalCommand key={`terminal-${index}`} terminalCommand={item.terminal_command} />
