@@ -66,8 +66,9 @@ export default function ActivityPage() {
         <h2 className="text-xl font-semibold mb-4">Date Range</h2>
         <div className="flex gap-4">
           <div>
-            <label className="block text-sm font-medium mb-1">Start Date</label>
+            <label htmlFor="start-date" className="block text-sm font-medium mb-1">Start Date</label>
             <input
+              id="start-date"
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
@@ -75,8 +76,9 @@ export default function ActivityPage() {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">End Date</label>
+            <label htmlFor="end-date" className="block text-sm font-medium mb-1">End Date</label>
             <input
+              id="end-date"
               type="date"
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
