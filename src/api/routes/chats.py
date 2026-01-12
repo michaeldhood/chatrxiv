@@ -243,14 +243,28 @@ def extract_terminal_command(
         f"extract_terminal_command: raw_json type={type(raw_json)}, keys={raw_json_keys}"
     )
 
-    tool_former = raw_json.get("toolFormerData", {})
-    tool_name = tool_former.get("name") if tool_former else None
+    # Try multiple possible key names for toolFormerData (case variations, etc.)
+    tool_former = (
+        raw_json.get("toolFormerData")
+        or raw_json.get("tool_former_data")
+        or raw_json.get("toolFormer")
+        or {}
+    )
+    
+    # If tool_former is a string, try to parse it
+    if isinstance(tool_former, str):
+        try:
+            tool_former = json.loads(tool_former)
+        except (json.JSONDecodeError, TypeError):
+            tool_former = {}
+    
+    tool_name = tool_former.get("name") if isinstance(tool_former, dict) else None
     logger.debug(
         f"extract_terminal_command: tool_former exists={bool(tool_former)}, "
         f"tool_former type={type(tool_former)}, name={tool_name}"
     )
     
-    if not tool_former or tool_former.get("name") != "run_terminal_cmd":
+    if not isinstance(tool_former, dict) or tool_former.get("name") != "run_terminal_cmd":
         if tool_former:
             logger.debug(
                 f"extract_terminal_command: tool name mismatch - expected 'run_terminal_cmd', "
