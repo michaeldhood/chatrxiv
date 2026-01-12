@@ -50,22 +50,26 @@ async def stream():
     """
     async def event_generator():
         """Async generator for SSE stream."""
-        db_path = get_db_path()
-        
-        # Get initial timestamp
-        last_seen = check_for_updates(db_path)
-        
-        # Send initial connection message
-        yield f"data: {json.dumps({'type': 'connected'})}\n\n"
-        
-        while True:
-            await asyncio.sleep(2)  # Check every 2 seconds
+        try:
+            db_path = get_db_path()
             
-            # Fresh connection each time to see changes from other processes
-            current = check_for_updates(db_path)
-            if current and current != last_seen:
-                last_seen = current
-                # Send update event
-                yield f"data: {json.dumps({'type': 'update', 'timestamp': current})}\n\n"
+            # Get initial timestamp
+            last_seen = check_for_updates(db_path)
+            
+            # Send initial connection message
+            yield f"data: {json.dumps({'type': 'connected'})}\n\n"
+            
+            while True:
+                await asyncio.sleep(2)  # Check every 2 seconds
+                
+                # Fresh connection each time to see changes from other processes
+                current = check_for_updates(db_path)
+                if current and current != last_seen:
+                    last_seen = current
+                    # Send update event
+                    yield f"data: {json.dumps({'type': 'update', 'timestamp': current})}\n\n"
+        except asyncio.CancelledError:
+            # Client disconnected - this is normal, exit silently
+            return
     
     return StreamingResponse(event_generator(), media_type="text/event-stream")

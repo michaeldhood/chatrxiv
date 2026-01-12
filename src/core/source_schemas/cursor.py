@@ -10,9 +10,9 @@ Schema versions:
 - Bubble: _v: 3 (current)
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class BubbleHeader(BaseModel):
@@ -239,6 +239,94 @@ class ComposerData(BaseModel):
     newlyCreatedFolders: Optional[List[str]] = Field(
         None, description="Folders created in this session"
     )
+
+    @field_validator("newlyCreatedFiles", mode="before")
+    @classmethod
+    def normalize_newly_created_files(cls, v: Any) -> Optional[List[str]]:
+        """
+        Normalize newlyCreatedFiles to list of strings.
+        
+        Handles both formats:
+        - Legacy: List[str] (e.g., ['file.py'])
+        - Modern: List[dict] with VS Code URI objects (e.g., [{'uri': {'path': 'file.py'}}])
+        
+        Parameters
+        ----------
+        v : Any
+            Raw input value (list of strings or list of dicts)
+            
+        Returns
+        -------
+        Optional[List[str]]
+            Normalized list of file paths as strings
+        """
+        if v is None:
+            return None
+        if not isinstance(v, list):
+            return None
+        
+        normalized = []
+        for item in v:
+            if isinstance(item, str):
+                normalized.append(item)
+            elif isinstance(item, dict):
+                # Extract path from VS Code URI object
+                uri_obj = item.get("uri", {})
+                if isinstance(uri_obj, dict):
+                    path = uri_obj.get("path") or uri_obj.get("fsPath")
+                    if path:
+                        normalized.append(path)
+                elif isinstance(uri_obj, str):
+                    normalized.append(uri_obj)
+            else:
+                # Fallback: convert to string
+                normalized.append(str(item))
+        
+        return normalized if normalized else None
+
+    @field_validator("newlyCreatedFolders", mode="before")
+    @classmethod
+    def normalize_newly_created_folders(cls, v: Any) -> Optional[List[str]]:
+        """
+        Normalize newlyCreatedFolders to list of strings.
+        
+        Handles both formats:
+        - Legacy: List[str] (e.g., ['folder/'])
+        - Modern: List[dict] with VS Code URI objects (e.g., [{'uri': {'path': 'folder/'}}])
+        
+        Parameters
+        ----------
+        v : Any
+            Raw input value (list of strings or list of dicts)
+            
+        Returns
+        -------
+        Optional[List[str]]
+            Normalized list of folder paths as strings
+        """
+        if v is None:
+            return None
+        if not isinstance(v, list):
+            return None
+        
+        normalized = []
+        for item in v:
+            if isinstance(item, str):
+                normalized.append(item)
+            elif isinstance(item, dict):
+                # Extract path from VS Code URI object
+                uri_obj = item.get("uri", {})
+                if isinstance(uri_obj, dict):
+                    path = uri_obj.get("path") or uri_obj.get("fsPath")
+                    if path:
+                        normalized.append(path)
+                elif isinstance(uri_obj, str):
+                    normalized.append(uri_obj)
+            else:
+                # Fallback: convert to string
+                normalized.append(str(item))
+        
+        return normalized if normalized else None
     totalLinesAdded: Optional[int] = Field(None, description="Lines added across all files")
     totalLinesRemoved: Optional[int] = Field(None, description="Lines removed across all files")
     addedFiles: Optional[int] = Field(None, description="Number of files added")
