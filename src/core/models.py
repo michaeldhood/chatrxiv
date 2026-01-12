@@ -3,13 +3,16 @@ Domain models for chat aggregation.
 
 These models represent the normalized structure of chats, messages, and workspaces
 independent of Cursor's internal storage format.
+
+All models use Pydantic for validation, serialization, and type safety.
 """
 
 import json
-from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ChatMode(str, Enum):
@@ -41,9 +44,14 @@ class MessageType(str, Enum):
     EMPTY = "empty"  # Unknown empty bubble
 
 
-@dataclass
-class Workspace:
-    """Represents a Cursor workspace."""
+class Workspace(BaseModel):
+    """
+    Represents a Cursor workspace.
+
+    Domain model for workspace metadata, independent of Cursor's storage format.
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     id: Optional[int] = None
     workspace_hash: str = ""
@@ -53,7 +61,11 @@ class Workspace:
     last_seen_at: Optional[datetime] = None
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for database storage."""
+        """
+        Convert to dictionary for database storage.
+
+        Backward compatibility method. Use model_dump() for Pydantic serialization.
+        """
         return {
             "workspace_hash": self.workspace_hash,
             "folder_uri": self.folder_uri,
@@ -67,9 +79,14 @@ class Workspace:
         }
 
 
-@dataclass
-class Message:
-    """Represents a single message in a chat."""
+class Message(BaseModel):
+    """
+    Represents a single message in a chat.
+
+    Domain model for individual messages, independent of source format.
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     id: Optional[int] = None
     chat_id: Optional[int] = None
@@ -82,7 +99,11 @@ class Message:
     message_type: MessageType = MessageType.RESPONSE
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for database storage."""
+        """
+        Convert to dictionary for database storage.
+
+        Backward compatibility method. Use model_dump() for Pydantic serialization.
+        """
         return {
             "chat_id": self.chat_id,
             "role": self.role.value,
@@ -95,9 +116,14 @@ class Message:
         }
 
 
-@dataclass
-class Chat:
-    """Represents a complete chat conversation."""
+class Chat(BaseModel):
+    """
+    Represents a complete chat conversation.
+
+    Domain model for chat conversations, independent of source format (Cursor, Claude, ChatGPT).
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     id: Optional[int] = None
     cursor_composer_id: str = ""
@@ -106,22 +132,19 @@ class Chat:
     mode: ChatMode = ChatMode.CHAT
     created_at: Optional[datetime] = None
     last_updated_at: Optional[datetime] = None
-    source: str = "cursor"  # "cursor" or "legacy"
+    source: str = "cursor"  # "cursor", "claude.ai", "chatgpt", or "legacy"
     summary: Optional[str] = None  # LLM-generated summary
     model: Optional[str] = None  # AI model used (e.g., "claude-3-5-sonnet-20241022")
     estimated_cost: Optional[float] = None  # Estimated cost in USD
-    messages: List[Message] = None
-    relevant_files: List[str] = None
-
-    def __post_init__(self):
-        """Initialize default values."""
-        if self.messages is None:
-            self.messages = []
-        if self.relevant_files is None:
-            self.relevant_files = []
+    messages: List[Message] = Field(default_factory=list)
+    relevant_files: List[str] = Field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for database storage."""
+        """
+        Convert to dictionary for database storage.
+
+        Backward compatibility method. Use model_dump() for Pydantic serialization.
+        """
         return {
             "cursor_composer_id": self.cursor_composer_id,
             "workspace_id": self.workspace_id,
@@ -137,9 +160,14 @@ class Chat:
         }
 
 
-@dataclass
-class CursorActivity:
-    """Represents a cursor activity/usage event from exported CSV data."""
+class CursorActivity(BaseModel):
+    """
+    Represents a cursor activity/usage event from exported CSV data.
+
+    Domain model for Cursor activity/usage tracking data.
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     id: Optional[int] = None
     date: Optional[datetime] = None
@@ -154,7 +182,11 @@ class CursorActivity:
     cost: Optional[float] = None
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for database storage."""
+        """
+        Convert to dictionary for database storage.
+
+        Backward compatibility method. Use model_dump() for Pydantic serialization.
+        """
         return {
             "date": self.date.isoformat() if self.date else None,
             "kind": self.kind,

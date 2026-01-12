@@ -11,8 +11,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from pydantic import ValidationError
+
 from src.core.db import ChatDatabase
 from src.core.models import Chat, ChatMode, Message, MessageRole, MessageType, Workspace
+from src.core.source_schemas.cursor import Bubble, ComposerData, ComposerHead
 from src.readers import ChatGPTReader, ClaudeReader
 from src.readers.global_reader import GlobalComposerReader
 from src.readers.plan_reader import PlanRegistryReader
@@ -416,6 +419,9 @@ class ChatAggregator:
         """
         Convert Cursor composer data to Chat domain model.
 
+        Uses Pydantic source models for validation. Falls back to dict parsing
+        if validation fails (for schema drift resilience).
+
         Parameters
         ----
         composer_data : Dict[str, Any]
@@ -430,21 +436,54 @@ class ChatAggregator:
         Chat
             Chat domain model, or None if conversion fails
         """
-        composer_id = composer_data.get("composerId")
-        if not composer_id:
-            return None
+        # Validate composer data with Pydantic model
+        try:
+            composer = ComposerData.model_validate(composer_data)
+            composer_id = composer.composerId
+        except ValidationError as e:
+            # Fallback to dict parsing if validation fails (schema drift)
+            logger.warning(
+                "ComposerData validation failed for composer %s: %s. Falling back to dict parsing.",
+                composer_data.get("composerId", "unknown"),
+                str(e),
+            )
+            composer_id = composer_data.get("composerId")
+            if not composer_id:
+                return None
+            composer = None  # Use dict fallback
+
+        # Validate composer head if provided
+        validated_head = None
+        if composer_head:
+            try:
+                validated_head = ComposerHead.model_validate(composer_head)
+            except ValidationError as e:
+                logger.debug(
+                    "ComposerHead validation failed: %s. Using dict fallback.",
+                    str(e),
+                )
+                # Continue with dict fallback
 
         # Determine mode (prefer workspace head, then global data)
         force_mode = None
         unified_mode = None
 
-        if composer_head:
+        if validated_head:
+            force_mode = validated_head.forceMode
+            unified_mode = validated_head.unifiedMode
+        elif composer_head:
+            # Fallback to dict access
             force_mode = composer_head.get("forceMode")
             unified_mode = composer_head.get("unifiedMode")
 
-        if not force_mode:
+        if not force_mode and composer:
+            force_mode = composer.forceMode
+        elif not force_mode:
             force_mode = composer_data.get("forceMode", "chat")
-        if not unified_mode:
+
+        if not unified_mode and composer:
+            unified_mode = composer.unifiedMode
+        elif not unified_mode:
             unified_mode = composer_data.get("unifiedMode", "chat")
 
         mode_map = {
@@ -464,10 +503,14 @@ class ChatAggregator:
         # 3. global composer data name/subtitle
         # 4. fallback
         title = None
-        if composer_head:
+        if validated_head:
+            title = validated_head.name or validated_head.subtitle
+        elif composer_head:
             title = composer_head.get("name") or composer_head.get("subtitle")
 
-        if not title:
+        if not title and composer:
+            title = composer.name or composer.subtitle
+        elif not title:
             title = composer_data.get("name") or composer_data.get("subtitle")
 
         if not title:
@@ -475,20 +518,37 @@ class ChatAggregator:
 
         # Extract timestamps (prefer workspace head, then global data)
         created_at = None
-        if composer_head and composer_head.get("createdAt"):
+        if validated_head and validated_head.createdAt:
+            try:
+                created_at = datetime.fromtimestamp(validated_head.createdAt / 1000)
+            except (ValueError, TypeError):
+                pass
+        elif composer_head and composer_head.get("createdAt"):
             try:
                 created_at = datetime.fromtimestamp(composer_head["createdAt"] / 1000)
             except (ValueError, TypeError):
                 pass
 
-        if not created_at and composer_data.get("createdAt"):
+        if not created_at and composer and composer.createdAt:
+            try:
+                created_at = datetime.fromtimestamp(composer.createdAt / 1000)
+            except (ValueError, TypeError):
+                pass
+        elif not created_at and composer_data.get("createdAt"):
             try:
                 created_at = datetime.fromtimestamp(composer_data["createdAt"] / 1000)
             except (ValueError, TypeError):
                 pass
 
         last_updated_at = None
-        if composer_head and composer_head.get("lastUpdatedAt"):
+        if validated_head and validated_head.lastUpdatedAt:
+            try:
+                last_updated_at = datetime.fromtimestamp(
+                    validated_head.lastUpdatedAt / 1000
+                )
+            except (ValueError, TypeError):
+                pass
+        elif composer_head and composer_head.get("lastUpdatedAt"):
             try:
                 last_updated_at = datetime.fromtimestamp(
                     composer_head["lastUpdatedAt"] / 1000
@@ -496,7 +556,12 @@ class ChatAggregator:
             except (ValueError, TypeError):
                 pass
 
-        if not last_updated_at and composer_data.get("lastUpdatedAt"):
+        if not last_updated_at and composer and composer.lastUpdatedAt:
+            try:
+                last_updated_at = datetime.fromtimestamp(composer.lastUpdatedAt / 1000)
+            except (ValueError, TypeError):
+                pass
+        elif not last_updated_at and composer_data.get("lastUpdatedAt"):
             try:
                 last_updated_at = datetime.fromtimestamp(
                     composer_data["lastUpdatedAt"] / 1000
@@ -506,22 +571,100 @@ class ChatAggregator:
 
         # Extract conversation - try multiple formats
         # Format 1: Old style with full conversation array
-        conversation = composer_data.get("conversation", [])
-
-        # Format 2: New style with headers-only + separate bubble storage
-        # If conversation is empty, try fullConversationHeadersOnly
-        if not conversation:
-            headers = composer_data.get("fullConversationHeadersOnly", [])
-            if headers:
+        conversation = []
+        if composer:
+            if composer.conversation:
+                # Legacy inline format
+                conversation = [bubble.model_dump() for bubble in composer.conversation]
+            elif composer.fullConversationHeadersOnly:
+                # Modern split format - resolve headers
+                headers_dict = [
+                    header.model_dump() for header in composer.fullConversationHeadersOnly
+                ]
                 conversation = self._resolve_conversation_from_headers(
-                    composer_id, headers
+                    composer_id, headers_dict
                 )
+        else:
+            # Fallback to dict parsing
+            conversation = composer_data.get("conversation", [])
+            if not conversation:
+                headers = composer_data.get("fullConversationHeadersOnly", [])
+                if headers:
+                    conversation = self._resolve_conversation_from_headers(
+                        composer_id, headers
+                    )
 
         messages = []
         relevant_files = set()
 
-        for bubble in conversation:
-            bubble_type = bubble.get("type")
+        for bubble_data in conversation:
+            # Validate bubble if it's a dict, otherwise assume it's already validated
+            bubble_dict = None
+            validated_bubble = None
+
+            if isinstance(bubble_data, dict):
+                # Try to validate as Bubble model
+                try:
+                    validated_bubble = Bubble.model_validate(bubble_data)
+                    bubble_dict = validated_bubble.model_dump()
+                except ValidationError:
+                    # Fallback to dict parsing
+                    bubble_dict = bubble_data
+            else:
+                # Already a Bubble model
+                validated_bubble = bubble_data
+                bubble_dict = validated_bubble.model_dump()
+
+            # Use validated model if available, otherwise dict
+            if validated_bubble:
+                bubble_type = validated_bubble.type
+                text = validated_bubble.text or ""
+                rich_text = validated_bubble.richText or ""
+                bubble_id = validated_bubble.bubbleId
+                # Extract thinking content
+                if not text and validated_bubble.thinking:
+                    text = validated_bubble.thinking.text or ""
+                # Extract timestamp
+                msg_created_at = None
+                if validated_bubble.createdAt:
+                    try:
+                        # Bubble.createdAt is ISO string, need to parse
+                        msg_created_at = datetime.fromisoformat(
+                            validated_bubble.createdAt.replace("Z", "+00:00")
+                        )
+                    except (ValueError, TypeError):
+                        pass
+            else:
+                # Dict fallback
+                bubble_type = bubble_dict.get("type")
+                text = bubble_dict.get("text", "")
+                rich_text = bubble_dict.get("richText", "")
+                bubble_id = bubble_dict.get("bubbleId")
+                # Extract thinking content
+                if not text:
+                    thinking_data = bubble_dict.get("thinking")
+                    if thinking_data and isinstance(thinking_data, dict):
+                        thinking_text = thinking_data.get("text", "")
+                        if thinking_text:
+                            text = thinking_text
+                # Extract timestamp
+                msg_created_at = None
+                if bubble_dict.get("createdAt"):
+                    # Could be ISO string or Unix timestamp
+                    created_at_val = bubble_dict["createdAt"]
+                    if isinstance(created_at_val, (int, float)):
+                        try:
+                            msg_created_at = datetime.fromtimestamp(created_at_val / 1000)
+                        except (ValueError, TypeError):
+                            pass
+                    elif isinstance(created_at_val, str):
+                        try:
+                            msg_created_at = datetime.fromisoformat(
+                                created_at_val.replace("Z", "+00:00")
+                            )
+                        except (ValueError, TypeError):
+                            pass
+
             if bubble_type == 1:  # User message
                 role = MessageRole.USER
             elif bubble_type == 2:  # AI response
@@ -529,43 +672,24 @@ class ChatAggregator:
             else:
                 continue  # Skip unknown types
 
-            text = bubble.get("text", "")
-            rich_text = bubble.get("richText", "")
-
-            # Extract thinking content if present and no regular text exists
-            # This ensures thinking messages display their content instead of "Empty message"
-            if not text:
-                thinking_data = bubble.get("thinking")
-                if thinking_data and isinstance(thinking_data, dict):
-                    thinking_text = thinking_data.get("text", "")
-                    if thinking_text:
-                        text = thinking_text
-
-            # Classify the bubble type
-            message_type = self._classify_bubble(bubble)
-
-            # Extract timestamp
-            msg_created_at = None
-            if bubble.get("createdAt"):
-                try:
-                    msg_created_at = datetime.fromtimestamp(bubble["createdAt"] / 1000)
-                except (ValueError, TypeError):
-                    pass
+            # Classify the bubble type (use dict for classification logic)
+            message_type = self._classify_bubble(bubble_dict)
 
             message = Message(
                 role=role,
                 text=text,
                 rich_text=rich_text,
                 created_at=msg_created_at or created_at,  # Fallback to chat created_at
-                cursor_bubble_id=bubble.get("bubbleId"),
-                raw_json=bubble,
+                cursor_bubble_id=bubble_id,
+                raw_json=bubble_dict,  # Store original dict for compatibility
                 message_type=message_type,
             )
             messages.append(message)
 
-            # Extract relevant files
-            for file_path in bubble.get("relevantFiles", []):
-                relevant_files.add(file_path)
+            # Extract relevant files (not in Bubble model, check dict)
+            if bubble_dict:
+                for file_path in bubble_dict.get("relevantFiles", []):
+                    relevant_files.add(file_path)
 
         # Create chat
         chat = Chat(
@@ -627,15 +751,20 @@ class ChatAggregator:
                         # Build composer_to_workspace map
                         composer_to_workspace[composer_id] = workspace_id
 
-                        # Build composer_heads map
-                        composer_heads[composer_id] = {
-                            "name": composer.get("name"),
-                            "subtitle": composer.get("subtitle"),
-                            "createdAt": composer.get("createdAt"),
-                            "lastUpdatedAt": composer.get("lastUpdatedAt"),
-                            "unifiedMode": composer.get("unifiedMode"),
-                            "forceMode": composer.get("forceMode"),
-                        }
+                        # Build composer_heads map - validate if possible
+                        try:
+                            validated_head = ComposerHead.model_validate(composer)
+                            composer_heads[composer_id] = validated_head.model_dump()
+                        except ValidationError:
+                            # Fallback to dict
+                            composer_heads[composer_id] = {
+                                "name": composer.get("name"),
+                                "subtitle": composer.get("subtitle"),
+                                "createdAt": composer.get("createdAt"),
+                                "lastUpdatedAt": composer.get("lastUpdatedAt"),
+                                "unifiedMode": composer.get("unifiedMode"),
+                                "forceMode": composer.get("forceMode"),
+                            }
 
         return workspace_map, composer_to_workspace, composer_heads
 
@@ -844,11 +973,11 @@ class ChatAggregator:
                                 )
 
                 # Get composer head for title enrichment
-                composer_head = composer_heads.get(composer_id)
+                composer_head_dict = composer_heads.get(composer_id)
 
                 # Convert to domain model
                 chat = self._convert_composer_to_chat(
-                    composer_data, workspace_id, composer_head
+                    composer_data, workspace_id, composer_head_dict
                 )
                 if not chat:
                     stats["skipped"] += 1
