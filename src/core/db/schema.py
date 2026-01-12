@@ -237,6 +237,20 @@ class SchemaManager:
             cursor.execute("ALTER TABLE chats ADD COLUMN estimated_cost REAL")
             logger.info("Added estimated_cost column to chats table")
 
+        if "thinking_count" not in columns:
+            cursor.execute(
+                "ALTER TABLE chats ADD COLUMN thinking_count INTEGER DEFAULT 0"
+            )
+            # Backfill existing chats with thinking message counts
+            cursor.execute("""
+                UPDATE chats SET thinking_count = (
+                    SELECT COUNT(*) FROM messages
+                    WHERE messages.chat_id = chats.id
+                    AND messages.message_type = 'thinking'
+                )
+            """)
+            logger.info("Added and backfilled thinking_count column to chats table")
+
     def _migrate_workspaces_table(self, cursor) -> None:
         """Apply migrations for workspaces table."""
         cursor.execute("PRAGMA table_info(workspaces)")

@@ -6,7 +6,7 @@ import json
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from src.core.models import Chat
+from src.core.models import Chat, MessageType
 from .base import BaseRepository
 
 
@@ -58,8 +58,11 @@ class ChatRepository(BaseRepository):
         )
         row = cursor.fetchone()
 
-        # Calculate message count
+        # Calculate message counts
         messages_count = len(chat.messages)
+        thinking_count = sum(
+            1 for msg in chat.messages if msg.message_type == MessageType.THINKING
+        )
 
         if row:
             chat_id = row[0]
@@ -69,7 +72,7 @@ class ChatRepository(BaseRepository):
                 UPDATE chats
                 SET workspace_id = ?, title = ?, mode = ?, created_at = ?,
                     last_updated_at = ?, source = ?, messages_count = ?,
-                    model = ?, estimated_cost = ?
+                    model = ?, estimated_cost = ?, thinking_count = ?
                 WHERE id = ?
             """,
                 (
@@ -82,6 +85,7 @@ class ChatRepository(BaseRepository):
                     messages_count,
                     chat.model,
                     chat.estimated_cost,
+                    thinking_count,
                     chat_id,
                 ),
             )
@@ -93,8 +97,9 @@ class ChatRepository(BaseRepository):
             cursor.execute(
                 """
                 INSERT INTO chats (cursor_composer_id, workspace_id, title, mode,
-                    created_at, last_updated_at, source, messages_count, model, estimated_cost)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    created_at, last_updated_at, source, messages_count, model,
+                    estimated_cost, thinking_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     chat.cursor_composer_id,
@@ -107,6 +112,7 @@ class ChatRepository(BaseRepository):
                     messages_count,
                     chat.model,
                     chat.estimated_cost,
+                    thinking_count,
                 ),
             )
             chat_id = cursor.lastrowid
@@ -170,7 +176,8 @@ class ChatRepository(BaseRepository):
             """
             SELECT c.id, c.cursor_composer_id, c.workspace_id, c.title, c.mode,
                    c.created_at, c.last_updated_at, c.source, c.messages_count,
-                   c.summary, c.model, c.estimated_cost, w.workspace_hash, w.resolved_path
+                   c.summary, c.model, c.estimated_cost, c.thinking_count,
+                   w.workspace_hash, w.resolved_path
             FROM chats c
             LEFT JOIN workspaces w ON c.workspace_id = w.id
             WHERE c.id = ?
@@ -195,8 +202,9 @@ class ChatRepository(BaseRepository):
             "summary": row[9] if len(row) > 9 else None,
             "model": row[10] if len(row) > 10 else None,
             "estimated_cost": row[11] if len(row) > 11 else None,
-            "workspace_hash": row[12] if len(row) > 12 else None,
-            "workspace_path": row[13] if len(row) > 13 else None,
+            "thinking_count": row[12] if len(row) > 12 else 0,
+            "workspace_hash": row[13] if len(row) > 13 else None,
+            "workspace_path": row[14] if len(row) > 14 else None,
             "messages": [],
             "files": [],
         }
