@@ -3,10 +3,13 @@ Chats API routes.
 """
 
 import json
+import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+
+logger = logging.getLogger(__name__)
 
 from src.api.deps import get_db
 from src.api.schemas import (
@@ -219,10 +222,40 @@ def extract_terminal_command(
         or None if not a run_terminal_cmd tool call
     """
     if not raw_json:
+        logger.debug("extract_terminal_command: raw_json is empty or None")
         return None
 
+    # Handle case where raw_json might be a JSON string (defensive programming)
+    if isinstance(raw_json, str):
+        try:
+            raw_json = json.loads(raw_json)
+        except (json.JSONDecodeError, TypeError):
+            logger.debug("extract_terminal_command: failed to parse raw_json as JSON string")
+            return None
+
+    if not isinstance(raw_json, dict):
+        logger.debug(f"extract_terminal_command: raw_json is not a dict, type={type(raw_json)}")
+        return None
+
+    # Log raw_json structure for debugging
+    raw_json_keys = list(raw_json.keys())
+    logger.debug(
+        f"extract_terminal_command: raw_json type={type(raw_json)}, keys={raw_json_keys}"
+    )
+
     tool_former = raw_json.get("toolFormerData", {})
+    tool_name = tool_former.get("name") if tool_former else None
+    logger.debug(
+        f"extract_terminal_command: tool_former exists={bool(tool_former)}, "
+        f"tool_former type={type(tool_former)}, name={tool_name}"
+    )
+    
     if not tool_former or tool_former.get("name") != "run_terminal_cmd":
+        if tool_former:
+            logger.debug(
+                f"extract_terminal_command: tool name mismatch - expected 'run_terminal_cmd', "
+                f"got '{tool_name}'"
+            )
         return None
 
     # Parse rawArgs or params to get the command
@@ -234,6 +267,7 @@ def extract_terminal_command(
             raw_args = {}
 
     # Fallback to params if rawArgs parsing failed
+    params_dict = {}
     if not raw_args or "command" not in raw_args:
         params = tool_former.get("params", "{}")
         if isinstance(params, str):
@@ -263,6 +297,21 @@ def extract_terminal_command(
 
     output = result.get("output", "")
     status = tool_former.get("status")
+
+    # Only return terminal command if we have a command string
+    if not command or not command.strip():
+        raw_args_keys = list(raw_args.keys()) if isinstance(raw_args, dict) else "N/A"
+        params_keys = list(params_dict.keys()) if isinstance(params_dict, dict) else "N/A"
+        logger.debug(
+            f"extract_terminal_command: no command found in rawArgs or params, "
+            f"rawArgs keys={raw_args_keys}, params keys={params_keys}"
+        )
+        return None
+
+    logger.debug(
+        f"extract_terminal_command: extracted command='{command[:50]}...' "
+        f"(len={len(command)}), output_len={len(output)}, status={status}"
+    )
 
     return {
         "command": command,
@@ -473,7 +522,20 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
             terminal_command = extract_terminal_command(raw_json, created_at)
             if terminal_command:
                 # Store terminal command to insert after tool call group
+                logger.debug(
+                    f"get_chat: extracted terminal command '{terminal_command.get('command', '')[:50]}...' "
+                    f"for message bubble_id={msg.get('bubble_id')}"
+                )
                 pending_terminal_commands.append(terminal_command)
+            else:
+                # Log why extraction failed for tool_call messages
+                if msg_type == "tool_call":
+                    tool_former = raw_json.get("toolFormerData", {}) if raw_json else {}
+                    tool_name = tool_former.get("name") if tool_former else None
+                    logger.debug(
+                        f"get_chat: terminal command extraction returned None for "
+                        f"tool_call name={tool_name}, bubble_id={msg.get('bubble_id')}"
+                    )
 
             # Extract tool result (output, contents, etc.)
             tool_result = extract_tool_result(raw_json)
@@ -505,6 +567,11 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
                     pending_plan_content = None
 
                 # Insert terminal commands right after the tool call group
+                if pending_terminal_commands:
+                    logger.debug(
+                        f"get_chat: inserting {len(pending_terminal_commands)} terminal command(s) "
+                        f"after tool call group"
+                    )
                 for terminal_cmd in pending_terminal_commands:
                     processed_messages.append(
                         {
@@ -602,6 +669,11 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
             pending_plan_content = None
 
         # Insert terminal commands right after the final tool call group
+        if pending_terminal_commands:
+            logger.debug(
+                f"get_chat: inserting {len(pending_terminal_commands)} terminal command(s) "
+                f"after final tool call group"
+            )
         for terminal_cmd in pending_terminal_commands:
             processed_messages.append(
                 {
@@ -676,6 +748,14 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
             )
 
     chat["processed_messages"] = processed_messages
+
+    # Log summary of processed messages
+    terminal_count = sum(1 for m in processed_messages if m.get("type") == "terminal_command")
+    tool_group_count = sum(1 for m in processed_messages if m.get("type") == "tool_call_group")
+    logger.debug(
+        f"get_chat: processed {len(processed_messages)} messages total: "
+        f"{terminal_count} terminal_command items, {tool_group_count} tool_call_groups"
+    )
 
     return ChatDetail(**chat)
 
