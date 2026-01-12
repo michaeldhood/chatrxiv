@@ -536,11 +536,13 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
             terminal_command = extract_terminal_command(raw_json, created_at)
             if terminal_command:
                 # Store terminal command to insert after tool call group
+                # Don't add to tool_call_group - it will be rendered separately
                 logger.debug(
                     f"get_chat: extracted terminal command '{terminal_command.get('command', '')[:50]}...' "
                     f"for message bubble_id={msg.get('bubble_id')}"
                 )
                 pending_terminal_commands.append(terminal_command)
+                # Skip adding to tool_call_group - terminal commands render as standalone items
             else:
                 # Log why extraction failed for tool_call messages
                 if msg_type == "tool_call":
@@ -551,12 +553,12 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
                         f"tool_call name={tool_name}, bubble_id={msg.get('bubble_id')}"
                     )
 
-            # Extract tool result (output, contents, etc.)
-            tool_result = extract_tool_result(raw_json)
-            if tool_result:
-                msg["tool_result"] = tool_result
+                # Extract tool result (output, contents, etc.)
+                tool_result = extract_tool_result(raw_json)
+                if tool_result:
+                    msg["tool_result"] = tool_result
 
-            tool_call_group.append(msg)
+                tool_call_group.append(msg)
         else:
             # If we have accumulated tool calls, add them as a group
             if tool_call_group:
