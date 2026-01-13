@@ -24,9 +24,9 @@ export default function ChatDetailPage() {
   const [summaryExpanded, setSummaryExpanded] = useState(true);
   const userMessagesRef = useRef<HTMLDivElement[]>([]);
   
-  // Visibility filter state (all start active/visible)
+  // Visibility filter state (thinking hidden by default, others visible)
   const [filterState, setFilterState] = useState({
-    thinking: true,
+    thinking: false,
     terminal: true,
     'file-write': true,
     'file-read': true,
