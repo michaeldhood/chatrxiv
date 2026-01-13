@@ -10,9 +10,41 @@ Schema versions:
 - Bubble: _v: 3 (current)
 """
 
+from enum import IntEnum, StrEnum
 from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+class BubbleType(IntEnum):
+    """Message type in Cursor bubbles."""
+
+    USER = 1
+    ASSISTANT = 2
+
+
+class ComposerStatus(StrEnum):
+    """Generation status for composer."""
+
+    NONE = "none"
+    GENERATING = "generating"
+    COMPLETED = "completed"
+    ERROR = "error"
+
+
+class ComposerMode(StrEnum):
+    """User-selected mode for composer."""
+
+    EDIT = "edit"
+    CHAT = "chat"
+    AGENT = "agent"
+
+
+class UnifiedMode(IntEnum):
+    """Internal unified mode enum (for Bubble)."""
+
+    AGENT = 2
+    # Other values TBD based on real data
 
 
 class BubbleHeader(BaseModel):
@@ -25,10 +57,26 @@ class BubbleHeader(BaseModel):
     model_config = ConfigDict(extra="allow")  # Allow unknown fields
 
     bubbleId: str = Field(..., description="Local bubble identifier (UUID)")
-    type: int = Field(..., description="1 = user message, 2 = assistant message")
+    type: Union[int, BubbleType] = Field(
+        ..., description="1 = user message, 2 = assistant message"
+    )
     serverBubbleId: Optional[str] = Field(
         None, description="Server-side ID (for assistant responses)"
     )
+
+    @field_validator("type", mode="before")
+    @classmethod
+    def normalize_type(cls, v: Any) -> int:
+        """Normalize type to int, accepting both int and BubbleType enum."""
+        if isinstance(v, BubbleType):
+            return v.value
+        if isinstance(v, int):
+            return v
+        # Try to convert string/int-like values
+        try:
+            return int(v)
+        except (ValueError, TypeError):
+            raise ValueError(f"Invalid bubble type: {v}")
 
 
 class ThinkingData(BaseModel):
@@ -75,7 +123,9 @@ class Bubble(BaseModel):
 
     # Critical fields - required
     bubbleId: str = Field(..., description="UUID for this bubble")
-    type: int = Field(..., description="1 = user message, 2 = assistant message")
+    type: Union[int, BubbleType] = Field(
+        ..., description="1 = user message, 2 = assistant message"
+    )
     v: int = Field(3, alias="_v", description="Schema version (currently 3)")
 
     # Core content fields - optional but common
@@ -114,7 +164,37 @@ class Bubble(BaseModel):
 
     # Shared fields
     isAgentic: Optional[bool] = Field(None, description="Agent mode for this message")
-    unifiedMode: Optional[int] = Field(None, description="Mode enum (2 = agent)")
+    unifiedMode: Optional[Union[int, UnifiedMode]] = Field(
+        None, description="Mode enum (2 = agent)"
+    )
+
+    @field_validator("type", mode="before")
+    @classmethod
+    def normalize_type(cls, v: Any) -> int:
+        """Normalize type to int, accepting both int and BubbleType enum."""
+        if isinstance(v, BubbleType):
+            return v.value
+        if isinstance(v, int):
+            return v
+        try:
+            return int(v)
+        except (ValueError, TypeError):
+            raise ValueError(f"Invalid bubble type: {v}")
+
+    @field_validator("unifiedMode", mode="before")
+    @classmethod
+    def normalize_unified_mode(cls, v: Any) -> Optional[int]:
+        """Normalize unifiedMode to int, accepting both int and UnifiedMode enum."""
+        if v is None:
+            return None
+        if isinstance(v, UnifiedMode):
+            return v.value
+        if isinstance(v, int):
+            return v
+        try:
+            return int(v)
+        except (ValueError, TypeError):
+            return None  # Allow None for unknown values
     commits: Optional[List[Any]] = Field(None, description="Git commits referenced")
     pullRequests: Optional[List[Any]] = Field(None, description="PRs referenced")
     images: Optional[List[Any]] = Field(None, description="Images in message")
@@ -205,13 +285,51 @@ class ComposerData(BaseModel):
     )
 
     # Mode & Status
-    status: Optional[str] = Field(
+    status: Optional[Union[str, ComposerStatus]] = Field(
         None, description="Current generation status: 'none', 'generating', 'completed', 'error'"
     )
-    forceMode: Optional[str] = Field(
+    forceMode: Optional[Union[str, ComposerMode]] = Field(
         None, description="User-selected mode: 'edit', 'chat', 'agent'"
     )
-    unifiedMode: Optional[str] = Field(None, description="Internal unified mode: 'agent', 'chat', etc.")
+    unifiedMode: Optional[Union[str, ComposerMode]] = Field(
+        None, description="Internal unified mode: 'agent', 'chat', etc."
+    )
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def normalize_status(cls, v: Any) -> Optional[str]:
+        """Normalize status to str, accepting both str and ComposerStatus enum."""
+        if v is None:
+            return None
+        if isinstance(v, ComposerStatus):
+            return v.value
+        if isinstance(v, str):
+            return v
+        return str(v)
+
+    @field_validator("forceMode", mode="before")
+    @classmethod
+    def normalize_force_mode(cls, v: Any) -> Optional[str]:
+        """Normalize forceMode to str, accepting both str and ComposerMode enum."""
+        if v is None:
+            return None
+        if isinstance(v, ComposerMode):
+            return v.value
+        if isinstance(v, str):
+            return v
+        return str(v)
+
+    @field_validator("unifiedMode", mode="before")
+    @classmethod
+    def normalize_unified_mode_str(cls, v: Any) -> Optional[str]:
+        """Normalize unifiedMode to str, accepting both str and ComposerMode enum."""
+        if v is None:
+            return None
+        if isinstance(v, ComposerMode):
+            return v.value
+        if isinstance(v, str):
+            return v
+        return str(v)
     isAgentic: Optional[bool] = Field(None, description="Whether agent mode is active")
 
     # Context & Attachments
@@ -395,5 +513,33 @@ class ComposerHead(BaseModel):
     subtitle: Optional[str] = Field(None, description="Auto-generated subtitle")
     createdAt: Optional[int] = Field(None, description="Unix timestamp in milliseconds")
     lastUpdatedAt: Optional[int] = Field(None, description="Last update timestamp (ms)")
-    unifiedMode: Optional[str] = Field(None, description="Internal unified mode")
-    forceMode: Optional[str] = Field(None, description="User-selected mode")
+    unifiedMode: Optional[Union[str, ComposerMode]] = Field(
+        None, description="Internal unified mode"
+    )
+    forceMode: Optional[Union[str, ComposerMode]] = Field(
+        None, description="User-selected mode"
+    )
+
+    @field_validator("unifiedMode", mode="before")
+    @classmethod
+    def normalize_unified_mode(cls, v: Any) -> Optional[str]:
+        """Normalize unifiedMode to str, accepting both str and ComposerMode enum."""
+        if v is None:
+            return None
+        if isinstance(v, ComposerMode):
+            return v.value
+        if isinstance(v, str):
+            return v
+        return str(v)
+
+    @field_validator("forceMode", mode="before")
+    @classmethod
+    def normalize_force_mode(cls, v: Any) -> Optional[str]:
+        """Normalize forceMode to str, accepting both str and ComposerMode enum."""
+        if v is None:
+            return None
+        if isinstance(v, ComposerMode):
+            return v.value
+        if isinstance(v, str):
+            return v
+        return str(v)

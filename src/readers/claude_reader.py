@@ -9,6 +9,9 @@ import os
 from typing import Any, Dict, List, Optional
 
 import dlt  # Only used for reading secrets
+from pydantic import ValidationError
+
+from src.core.source_schemas.claude import ClaudeConversation
 
 from .base import WebConversationReader
 
@@ -81,7 +84,12 @@ class ClaudeReader(WebConversationReader):
         return conversations
 
     def _fetch_conversation_detail(self, conv_id: str) -> Optional[Dict[str, Any]]:
-        """Fetch full conversation details including messages."""
+        """
+        Fetch full conversation details including messages.
+        
+        Validates response with ClaudeConversation Pydantic model, falling back
+        to raw dict if validation fails.
+        """
         url = f"{self.api_base_url}/chat_conversations/{conv_id}"
         params = {
             "tree": "True",
@@ -92,7 +100,20 @@ class ClaudeReader(WebConversationReader):
         try:
             response = self._session.get(url, params=params)
             response.raise_for_status()
-            return response.json()
+            data = response.json()
+            
+            # Attempt to validate with Pydantic model
+            try:
+                validated = ClaudeConversation.model_validate(data)
+                # Return validated model as dict for backward compatibility
+                return validated.model_dump(mode="json", exclude_none=False)
+            except ValidationError as ve:
+                logger.warning(
+                    "Failed to validate Claude conversation %s: %s. Using raw data.",
+                    conv_id,
+                    ve,
+                )
+                return data
         except Exception as e:
             logger.error("Error fetching conversation %s: %s", conv_id, e)
             return None

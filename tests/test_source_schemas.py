@@ -8,11 +8,32 @@ import json
 import pytest
 from pydantic import ValidationError
 
+from src.core.source_schemas.chatgpt import (
+    AuthorRole,
+    ChatGPTAuthor,
+    ChatGPTConversation,
+    ChatGPTContent,
+    ChatGPTMessage,
+    ChatGPTNode,
+    MessageStatus,
+)
+from src.core.source_schemas.claude import (
+    ClaudeConversation,
+    ClaudeContentBlock,
+    ClaudeMessage,
+    ContentType,
+    SenderRole,
+    StopReason,
+)
 from src.core.source_schemas.cursor import (
     Bubble,
     BubbleHeader,
+    BubbleType,
     ComposerData,
     ComposerHead,
+    ComposerMode,
+    ComposerStatus,
+    UnifiedMode,
 )
 
 
@@ -356,3 +377,310 @@ class TestSchemaVersionHandling:
         }
         bubble = Bubble.model_validate(bubble_data)
         assert bubble.v == 3  # Access via 'v' field name, but serializes as '_v'
+
+
+class TestCursorEnums:
+    """Tests for Cursor enum validation and backward compatibility."""
+
+    def test_bubble_type_enum_accepts_int(self):
+        """Test that BubbleType field accepts raw int values."""
+        bubble_data = {
+            "_v": 3,
+            "bubbleId": "bubble-123",
+            "type": 1,  # Raw int
+        }
+        bubble = Bubble.model_validate(bubble_data)
+        assert bubble.type == 1
+
+    def test_bubble_type_enum_accepts_enum(self):
+        """Test that BubbleType field accepts enum values."""
+        bubble_data = {
+            "_v": 3,
+            "bubbleId": "bubble-123",
+            "type": BubbleType.ASSISTANT,  # Enum value
+        }
+        bubble = Bubble.model_validate(bubble_data)
+        assert bubble.type == 2  # Normalized to int
+
+    def test_composer_status_enum_accepts_str(self):
+        """Test that ComposerStatus field accepts raw string values."""
+        composer_data = {
+            "_v": 10,
+            "composerId": "composer-123",
+            "status": "generating",  # Raw string
+        }
+        composer = ComposerData.model_validate(composer_data)
+        assert composer.status == "generating"
+
+    def test_composer_status_enum_accepts_enum(self):
+        """Test that ComposerStatus field accepts enum values."""
+        composer_data = {
+            "_v": 10,
+            "composerId": "composer-123",
+            "status": ComposerStatus.COMPLETED,  # Enum value
+        }
+        composer = ComposerData.model_validate(composer_data)
+        assert composer.status == "completed"  # Normalized to str
+
+    def test_composer_mode_enum_accepts_str(self):
+        """Test that ComposerMode field accepts raw string values."""
+        composer_data = {
+            "_v": 10,
+            "composerId": "composer-123",
+            "forceMode": "agent",  # Raw string
+        }
+        composer = ComposerData.model_validate(composer_data)
+        assert composer.forceMode == "agent"
+
+    def test_composer_mode_enum_accepts_enum(self):
+        """Test that ComposerMode field accepts enum values."""
+        composer_data = {
+            "_v": 10,
+            "composerId": "composer-123",
+            "forceMode": ComposerMode.CHAT,  # Enum value
+        }
+        composer = ComposerData.model_validate(composer_data)
+        assert composer.forceMode == "chat"  # Normalized to str
+
+    def test_unified_mode_enum_accepts_int(self):
+        """Test that UnifiedMode field accepts raw int values."""
+        bubble_data = {
+            "_v": 3,
+            "bubbleId": "bubble-123",
+            "type": 1,
+            "unifiedMode": 2,  # Raw int
+        }
+        bubble = Bubble.model_validate(bubble_data)
+        assert bubble.unifiedMode == 2
+
+    def test_unified_mode_enum_accepts_enum(self):
+        """Test that UnifiedMode field accepts enum values."""
+        bubble_data = {
+            "_v": 3,
+            "bubbleId": "bubble-123",
+            "type": 1,
+            "unifiedMode": UnifiedMode.AGENT,  # Enum value
+        }
+        bubble = Bubble.model_validate(bubble_data)
+        assert bubble.unifiedMode == 2  # Normalized to int
+
+
+class TestClaudeSchemas:
+    """Tests for Claude.ai source schema models."""
+
+    def test_claude_message_minimal(self):
+        """Test validation of minimal Claude message."""
+        message_data = {
+            "uuid": "msg-123",
+            "sender": "human",
+            "index": 0,
+            "created_at": "2025-01-01T00:00:00Z",
+            "content": [],
+        }
+        message = ClaudeMessage.model_validate(message_data)
+        assert message.uuid == "msg-123"
+        assert message.sender == SenderRole.HUMAN
+        assert message.index == 0
+
+    def test_claude_message_with_content(self):
+        """Test Claude message with content blocks."""
+        message_data = {
+            "uuid": "msg-123",
+            "sender": "assistant",
+            "index": 1,
+            "created_at": "2025-01-01T00:00:00Z",
+            "content": [
+                {
+                    "type": "text",
+                    "text": "Hello, world!",
+                    "start_timestamp": "2025-01-01T00:00:00Z",
+                    "stop_timestamp": "2025-01-01T00:00:01Z",
+                },
+                {
+                    "type": "thinking",
+                    "thinking": "Let me think...",
+                },
+            ],
+        }
+        message = ClaudeMessage.model_validate(message_data)
+        assert len(message.content) == 2
+        assert message.content[0].type == ContentType.TEXT
+        assert message.content[0].text == "Hello, world!"
+        assert message.content[1].type == ContentType.THINKING
+        assert message.content[1].thinking == "Let me think..."
+
+    def test_claude_conversation_minimal(self):
+        """Test validation of minimal Claude conversation."""
+        conv_data = {
+            "uuid": "conv-123",
+            "model": "claude-opus-4-5-20251101",
+            "created_at": "2025-01-01T00:00:00Z",
+            "updated_at": "2025-01-01T00:00:00Z",
+            "chat_messages": [],
+        }
+        conv = ClaudeConversation.model_validate(conv_data)
+        assert conv.uuid == "conv-123"
+        assert conv.model == "claude-opus-4-5-20251101"
+        assert len(conv.chat_messages) == 0
+
+    def test_claude_conversation_with_messages(self):
+        """Test Claude conversation with messages."""
+        conv_data = {
+            "uuid": "conv-123",
+            "model": "claude-opus-4-5-20251101",
+            "created_at": "2025-01-01T00:00:00Z",
+            "updated_at": "2025-01-01T00:00:00Z",
+            "chat_messages": [
+                {
+                    "uuid": "msg-1",
+                    "sender": "human",
+                    "index": 0,
+                    "created_at": "2025-01-01T00:00:00Z",
+                    "content": [{"type": "text", "text": "Hello"}],
+                },
+                {
+                    "uuid": "msg-2",
+                    "sender": "assistant",
+                    "index": 1,
+                    "created_at": "2025-01-01T00:00:01Z",
+                    "content": [{"type": "text", "text": "Hi there!"}],
+                    "stop_reason": "stop_sequence",
+                },
+            ],
+        }
+        conv = ClaudeConversation.model_validate(conv_data)
+        assert len(conv.chat_messages) == 2
+        assert conv.chat_messages[0].sender == SenderRole.HUMAN
+        assert conv.chat_messages[1].sender == SenderRole.ASSISTANT
+        assert conv.chat_messages[1].stop_reason == StopReason.STOP_SEQUENCE
+
+    def test_claude_sender_role_enum(self):
+        """Test that SenderRole enum works correctly."""
+        message_data = {
+            "uuid": "msg-123",
+            "sender": "assistant",  # String value
+            "index": 0,
+            "created_at": "2025-01-01T00:00:00Z",
+            "content": [],
+        }
+        message = ClaudeMessage.model_validate(message_data)
+        assert message.sender == SenderRole.ASSISTANT
+
+
+class TestChatGPTSchemas:
+    """Tests for ChatGPT source schema models."""
+
+    def test_chatgpt_author_minimal(self):
+        """Test validation of minimal ChatGPT author."""
+        author_data = {
+            "role": "user",
+        }
+        author = ChatGPTAuthor.model_validate(author_data)
+        assert author.role == AuthorRole.USER
+
+    def test_chatgpt_message_minimal(self):
+        """Test validation of minimal ChatGPT message."""
+        message_data = {
+            "id": "msg-123",
+            "author": {"role": "user"},
+            "content": {"content_type": "text", "parts": ["Hello"]},
+            "status": "finished_successfully",
+        }
+        message = ChatGPTMessage.model_validate(message_data)
+        assert message.id == "msg-123"
+        assert message.author.role == AuthorRole.USER
+        assert message.status == MessageStatus.FINISHED_SUCCESSFULLY
+
+    def test_chatgpt_node_with_message(self):
+        """Test ChatGPT node with message."""
+        node_data = {
+            "id": "node-123",
+            "parent": None,
+            "children": ["node-456"],
+            "message": {
+                "id": "msg-123",
+                "author": {"role": "assistant"},
+                "content": {"content_type": "text", "parts": ["Hi"]},
+                "status": "finished_successfully",
+            },
+        }
+        node = ChatGPTNode.model_validate(node_data)
+        assert node.id == "node-123"
+        assert node.parent is None
+        assert len(node.children) == 1
+        assert node.message is not None
+        assert node.message.author.role == AuthorRole.ASSISTANT
+
+    def test_chatgpt_node_without_message(self):
+        """Test ChatGPT node without message (container node)."""
+        node_data = {
+            "id": "node-123",
+            "parent": None,
+            "children": ["node-456"],
+            "message": None,
+        }
+        node = ChatGPTNode.model_validate(node_data)
+        assert node.message is None
+
+    def test_chatgpt_conversation_minimal(self):
+        """Test validation of minimal ChatGPT conversation."""
+        conv_data = {
+            "conversation_id": "conv-123",
+            "id": "conv-123",
+            "title": "Test Chat",
+            "create_time": 1735689600.0,
+            "update_time": 1735689600.0,
+            "current_node": "node-123",
+            "mapping": {},
+        }
+        conv = ChatGPTConversation.model_validate(conv_data)
+        assert conv.conversation_id == "conv-123"
+        assert conv.title == "Test Chat"
+        assert len(conv.mapping) == 0
+
+    def test_chatgpt_conversation_with_tree(self):
+        """Test ChatGPT conversation with message tree."""
+        conv_data = {
+            "conversation_id": "conv-123",
+            "id": "conv-123",
+            "title": "Test Chat",
+            "create_time": 1735689600.0,
+            "update_time": 1735689600.0,
+            "current_node": "node-2",
+            "mapping": {
+                "node-1": {
+                    "id": "node-1",
+                    "parent": None,
+                    "children": ["node-2"],
+                    "message": {
+                        "id": "msg-1",
+                        "author": {"role": "user"},
+                        "content": {"content_type": "text", "parts": ["Hello"]},
+                        "status": "finished_successfully",
+                    },
+                },
+                "node-2": {
+                    "id": "node-2",
+                    "parent": "node-1",
+                    "children": [],
+                    "message": {
+                        "id": "msg-2",
+                        "author": {"role": "assistant"},
+                        "content": {"content_type": "text", "parts": ["Hi"]},
+                        "status": "finished_successfully",
+                    },
+                },
+            },
+        }
+        conv = ChatGPTConversation.model_validate(conv_data)
+        assert len(conv.mapping) == 2
+        assert conv.mapping["node-1"].message.author.role == AuthorRole.USER
+        assert conv.mapping["node-2"].message.author.role == AuthorRole.ASSISTANT
+
+    def test_chatgpt_author_role_enum(self):
+        """Test that AuthorRole enum works correctly."""
+        author_data = {
+            "role": "system",  # String value
+        }
+        author = ChatGPTAuthor.model_validate(author_data)
+        assert author.role == AuthorRole.SYSTEM

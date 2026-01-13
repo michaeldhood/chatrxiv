@@ -9,8 +9,11 @@ from pathlib import Path
 from typing import List, Dict, Optional, Any
 from datetime import datetime
 
+from pydantic import ValidationError
+
 from src.core.db import ChatDatabase
 from src.core.models import Chat, Message, ChatMode, MessageRole, MessageType
+from src.core.source_schemas.chatgpt import ChatGPTConversation
 from src.readers.chatgpt_reader import ChatGPTReader
 
 logger = logging.getLogger(__name__)
@@ -71,6 +74,18 @@ class ChatGPTExportImporter:
         
         for conv_data in conversations:
             try:
+                # Attempt to validate with Pydantic model
+                try:
+                    validated = ChatGPTConversation.model_validate(conv_data)
+                    # Use validated model's dict for processing
+                    conv_data = validated.model_dump(mode="json", exclude_none=False)
+                except ValidationError as ve:
+                    logger.warning(
+                        "Failed to validate ChatGPT conversation %s: %s. Using raw data.",
+                        conv_data.get("conversation_id", "unknown"),
+                        ve,
+                    )
+                
                 chat = self._convert_conversation_to_chat(conv_data)
                 if chat:
                     self.db.upsert_chat(chat)

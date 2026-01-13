@@ -8,6 +8,10 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 
+from pydantic import ValidationError
+
+from src.core.source_schemas.chatgpt import ChatGPTConversation
+
 from .base import WebConversationReader
 
 logger = logging.getLogger(__name__)
@@ -223,13 +227,26 @@ class ChatGPTReader(WebConversationReader):
         Fetch full conversation details including messages.
 
         ChatGPT stores messages as a tree structure. This method fetches
-        the conversation and flattens the message tree into a linear array.
+        the conversation, validates with ChatGPTConversation Pydantic model,
+        and flattens the message tree into a linear array.
         """
         try:
             response = self._session.get(f"{self.api_base_url}/conversation/{conv_id}")
             response.raise_for_status()
 
             data = response.json()
+
+            # Attempt to validate with Pydantic model
+            try:
+                validated = ChatGPTConversation.model_validate(data)
+                # Convert back to dict for processing
+                data = validated.model_dump(mode="json", exclude_none=False)
+            except ValidationError as ve:
+                logger.warning(
+                    "Failed to validate ChatGPT conversation %s: %s. Using raw data.",
+                    conv_id,
+                    ve,
+                )
 
             # Flatten the message tree into a linear array (like Claude's format)
             mapping = data.get("mapping", {})
