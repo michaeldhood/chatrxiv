@@ -732,10 +732,12 @@ class ChatAggregator:
         # Build all three mappings in one pass
         for workspace_hash, metadata in workspaces_metadata.items():
             # Build workspace map
+            # Use `or ""` because project_path can be None when workspace.json is missing
+            project_path = metadata.get("project_path") or ""
             workspace = Workspace(
                 workspace_hash=workspace_hash,
-                folder_uri=metadata.get("project_path", ""),
-                resolved_path=metadata.get("project_path", ""),
+                folder_uri=project_path,
+                resolved_path=project_path,
             )
             workspace_id = self.db.upsert_workspace(workspace)
             workspace_map[workspace_hash] = workspace_id
