@@ -903,9 +903,42 @@ class ChatAggregator:
                 # If we have a timestamp, check if it's newer than last run
                 if chat_updated_at and last_timestamp:
                     if chat_updated_at <= last_timestamp:
-                        # Chat hasn't been updated since last run - skip it
-                        stats["skipped"] += 1
-                        continue
+                        # Timestamp suggests no update, but also check bubble count
+                        # (Cursor sometimes doesn't update lastUpdatedAt when bubbles are added)
+                        source_bubble_count = len(
+                            composer_data.get("fullConversationHeadersOnly", [])
+                        )
+                        if source_bubble_count > 0:
+                            # Check if database has fewer messages than source
+                            cursor = self.db.conn.cursor()
+                            cursor.execute(
+                                "SELECT messages_count FROM chats WHERE cursor_composer_id = ?",
+                                (composer_id,),
+                            )
+                            existing = cursor.fetchone()
+                            if existing:
+                                db_message_count = existing[0] or 0
+                                if source_bubble_count > db_message_count:
+                                    # New bubbles added but timestamp not updated
+                                    # Force re-ingestion
+                                    logger.debug(
+                                        "Composer %s has new bubbles (%d > %d) despite old timestamp, re-ingesting",
+                                        composer_id,
+                                        source_bubble_count,
+                                        db_message_count,
+                                    )
+                                    pass  # Continue to processing
+                                else:
+                                    # Chat hasn't been updated since last run - skip it
+                                    stats["skipped"] += 1
+                                    continue
+                            else:
+                                # Chat not in database yet - process it
+                                pass
+                        else:
+                            # No bubbles in source - skip it
+                            stats["skipped"] += 1
+                            continue
                     # Chat has been updated - process it
                 elif not chat_updated_at:
                     # No timestamp available in source - check database for existing chat
