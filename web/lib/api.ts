@@ -4,6 +4,31 @@
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
 
+/**
+ * Fetch with exponential backoff retry for network errors.
+ * Only retries on connection failures, not HTTP errors (404, 500, etc.)
+ */
+async function fetchWithRetry(
+  url: string,
+  options?: RequestInit,
+  maxRetries = 5,
+  baseDelay = 100
+): Promise<Response> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const res = await fetch(url, options);
+      return res;
+    } catch (error) {
+      // Network error (connection refused, timeout, etc.)
+      if (attempt === maxRetries) throw error;
+      const delay = baseDelay * Math.pow(2, attempt);
+      console.debug(`Fetch failed, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+  throw new Error('Max retries exceeded');
+}
+
 // Type definitions matching Pydantic schemas
 export interface ChatSummary {
   id: number;
@@ -188,7 +213,7 @@ export interface DailyActivityAggregate {
  * Fetch available filter options (sources, modes) with counts.
  */
 export async function fetchFilterOptions(): Promise<FilterOptionsResponse> {
-  const res = await fetch(`${API_BASE}/api/filter-options`);
+  const res = await fetchWithRetry(`${API_BASE}/api/filter-options`);
   if (!res.ok) {
     throw new Error(`Failed to fetch filter options: ${res.statusText}`);
   }
@@ -211,7 +236,7 @@ export async function fetchChats(
     params.set('filter', filter);
   }
   
-  const res = await fetch(`${API_BASE}/api/chats?${params}`);
+  const res = await fetchWithRetry(`${API_BASE}/api/chats?${params}`);
   if (!res.ok) {
     throw new Error(`Failed to fetch chats: ${res.statusText}`);
   }
@@ -222,7 +247,7 @@ export async function fetchChats(
  * Fetch a single chat by ID with all messages.
  */
 export async function fetchChat(id: number): Promise<ChatDetail> {
-  const res = await fetch(`${API_BASE}/api/chats/${id}`);
+  const res = await fetchWithRetry(`${API_BASE}/api/chats/${id}`);
   if (!res.ok) {
     if (res.status === 404) {
       throw new Error(`Chat ${id} not found`);
@@ -248,7 +273,7 @@ export async function searchChats(
     sort,
   });
   
-  const res = await fetch(`${API_BASE}/api/search?${params}`);
+  const res = await fetchWithRetry(`${API_BASE}/api/search?${params}`);
   if (!res.ok) {
     throw new Error(`Search failed: ${res.statusText}`);
   }
@@ -271,7 +296,7 @@ export async function instantSearch(
     limit: String(limit),
   });
   
-  const res = await fetch(`${API_BASE}/api/instant-search?${params}`);
+  const res = await fetchWithRetry(`${API_BASE}/api/instant-search?${params}`);
   if (!res.ok) {
     throw new Error(`Instant search failed: ${res.statusText}`);
   }
@@ -304,7 +329,7 @@ export async function searchWithFacets(
     workspaces.forEach(ws => params.append('workspaces', String(ws)));
   }
   
-  const res = await fetch(`${API_BASE}/api/search/facets?${params}`);
+  const res = await fetchWithRetry(`${API_BASE}/api/search/facets?${params}`);
   if (!res.ok) {
     throw new Error(`Faceted search failed: ${res.statusText}`);
   }
@@ -315,7 +340,7 @@ export async function searchWithFacets(
  * Generate and store a summary for a chat using Claude API.
  */
 export async function summarizeChat(id: number): Promise<{ summary: string; chat_id: number; generated_at?: string }> {
-  const res = await fetch(`${API_BASE}/api/chats/${id}/summarize`, {
+  const res = await fetchWithRetry(`${API_BASE}/api/chats/${id}/summarize`, {
     method: 'POST',
   });
   if (!res.ok) {
@@ -341,7 +366,7 @@ export async function fetchActivity(
   if (start_date) params.set('start_date', start_date);
   if (end_date) params.set('end_date', end_date);
   
-  const res = await fetch(`${API_BASE}/api/activity?${params}`);
+  const res = await fetchWithRetry(`${API_BASE}/api/activity?${params}`);
   if (!res.ok) {
     throw new Error(`Failed to fetch activity: ${res.statusText}`);
   }
@@ -359,7 +384,7 @@ export async function fetchActivitySummary(
   if (start_date) params.set('start_date', start_date);
   if (end_date) params.set('end_date', end_date);
   
-  const res = await fetch(`${API_BASE}/api/activity/summary?${params}`);
+  const res = await fetchWithRetry(`${API_BASE}/api/activity/summary?${params}`);
   if (!res.ok) {
     throw new Error(`Failed to fetch activity summary: ${res.statusText}`);
   }
@@ -377,7 +402,7 @@ export async function fetchDailyActivity(
   if (start_date) params.set('start_date', start_date);
   if (end_date) params.set('end_date', end_date);
   
-  const res = await fetch(`${API_BASE}/api/activity/daily?${params}`);
+  const res = await fetchWithRetry(`${API_BASE}/api/activity/daily?${params}`);
   if (!res.ok) {
     throw new Error(`Failed to fetch daily activity: ${res.statusText}`);
   }

@@ -129,13 +129,13 @@ class PlanRegistryReader:
             if isinstance(uri, dict):
                 file_path = uri.get("fsPath") or uri.get("path")
 
-            # Convert timestamps from milliseconds to ISO strings
+            # Convert timestamps from milliseconds to datetime objects
             created_at = None
             if plan_data.get("createdAt"):
                 try:
                     created_at = datetime.fromtimestamp(
                         plan_data["createdAt"] / 1000
-                    ).isoformat()
+                    )
                 except (ValueError, TypeError):
                     pass
 
@@ -144,7 +144,7 @@ class PlanRegistryReader:
                 try:
                     last_updated_at = datetime.fromtimestamp(
                         plan_data["lastUpdatedAt"] / 1000
-                    ).isoformat()
+                    )
                 except (ValueError, TypeError):
                     pass
 

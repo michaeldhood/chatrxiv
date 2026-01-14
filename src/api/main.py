@@ -7,18 +7,21 @@ ingestion of new chats from Cursor.
 
 import logging
 import os
+import threading
 from contextlib import asynccontextmanager
 from typing import Optional
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.api.routes import activity, chats, search, stream
+from src.api.routes import activity, chats, health, search, stream
 
 logger = logging.getLogger(__name__)
 
-# Global watcher instance (managed by lifespan)
+# Global state (managed by lifespan)
 _watcher: Optional["IngestionWatcher"] = None
+_ingestion_complete = threading.Event()
+_ingestion_thread: Optional[threading.Thread] = None
 
 
 def _do_ingestion():
@@ -49,38 +52,51 @@ def _do_ingestion():
         db.close()
 
 
+def _background_ingestion():
+    """Run initial ingestion in background thread."""
+    try:
+        _do_ingestion()
+    finally:
+        _ingestion_complete.set()
+        logger.info("Background ingestion complete")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
     FastAPI lifespan manager for startup/shutdown tasks.
 
     On startup:
-    - Performs initial ingestion (if watching enabled)
+    - Starts initial ingestion in background thread (non-blocking)
     - Starts file watcher for automatic updates
 
     On shutdown:
     - Stops file watcher gracefully
     """
-    global _watcher
+    global _watcher, _ingestion_thread
 
     watch_enabled = os.getenv("CHATRXIV_WATCH", "true").lower() == "true"
 
     if watch_enabled:
         from src.services.watcher import IngestionWatcher
 
-        logger.info("Performing initial ingestion...")
-        _do_ingestion()
+        # Start ingestion in background thread (non-blocking)
+        logger.info("Starting background ingestion...")
+        _ingestion_thread = threading.Thread(target=_background_ingestion, daemon=True)
+        _ingestion_thread.start()
 
+        # Start file watcher for subsequent updates
         logger.info("Starting file watcher for automatic updates...")
         _watcher = IngestionWatcher(
             ingestion_callback=_do_ingestion, debounce_seconds=5.0, poll_interval=30.0
         )
         _watcher.start()
-        logger.info("File watcher started - new chats will be auto-ingested")
+        logger.info("Server ready (ingestion running in background)")
     else:
+        _ingestion_complete.set()  # Mark as complete if watching disabled
         logger.info("File watching disabled (CHATRXIV_WATCH=false)")
 
-    yield  # App runs here
+    yield  # Server is ready immediately
 
     # Shutdown
     if _watcher:
@@ -110,3 +126,4 @@ app.include_router(chats.router, prefix="/api", tags=["chats"])
 app.include_router(search.router, prefix="/api", tags=["search"])
 app.include_router(stream.router, prefix="/api", tags=["stream"])
 app.include_router(activity.router, prefix="/api", tags=["activity"])
+app.include_router(health.router, prefix="/api", tags=["health"])
