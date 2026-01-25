@@ -66,8 +66,9 @@ async def stream():
                 current = check_for_updates(db_path)
                 if current and current != last_seen:
                     last_seen = current
-                    # Send update event
-                    yield f"data: {json.dumps({'type': 'update', 'timestamp': current})}\n\n"
+                    # Send update event - convert datetime to ISO string for JSON
+                    timestamp_str = current.isoformat() if hasattr(current, 'isoformat') else str(current)
+                    yield f"data: {json.dumps({'type': 'update', 'timestamp': timestamp_str})}\n\n"
         except asyncio.CancelledError:
             # Client disconnected - this is normal, exit silently
             return
