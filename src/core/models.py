@@ -132,7 +132,7 @@ class Chat(BaseModel):
     mode: ChatMode = ChatMode.CHAT
     created_at: Optional[datetime] = None
     last_updated_at: Optional[datetime] = None
-    source: str = "cursor"  # "cursor", "claude.ai", "chatgpt", or "legacy"
+    source: str = "cursor"  # "cursor", "claude.ai", "chatgpt", "claude-code", or "legacy"
     summary: Optional[str] = None  # LLM-generated summary
     model: Optional[str] = None  # AI model used (e.g., "claude-3-5-sonnet-20241022")
     estimated_cost: Optional[float] = None  # Estimated cost in USD

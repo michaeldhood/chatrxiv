@@ -79,6 +79,18 @@ def get_cursor_global_storage_path() -> Path:
         raise OSError(f"Unsupported operating system: {system}")
 
 
+def get_claude_code_projects_path() -> Path:
+    """
+    Get the path to Claude Code projects directory.
+
+    Returns
+    ----
+    Path
+        Path to ~/.claude/projects/
+    """
+    return Path.home() / ".claude" / "projects"
+
+
 def get_default_db_path() -> Path:
     """
     Get the default database path based on OS.
