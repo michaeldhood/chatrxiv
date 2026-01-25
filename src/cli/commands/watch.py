@@ -22,9 +22,9 @@ from src.core.models import ChatMode
 @click.command()
 @click.option(
     '--source',
-    type=click.Choice(['cursor', 'claude', 'all']),
+    type=click.Choice(['cursor', 'claude', 'chatgpt', 'code', 'all']),
     default='all',
-    help='Source to ingest from (default: all)'
+    help='Source to ingest from (code = Claude Code CLI, default: all)'
 )
 @click.option(
     '--poll-interval',
@@ -48,9 +48,10 @@ from src.core.models import ChatMode
 def watch(ctx, source, poll_interval, debounce, use_polling, db_path):
     """
     Watch for changes and automatically ingest (daemon mode).
-    
-    Runs in the background, monitoring Cursor database files for changes
-    and automatically ingesting new chats. Press Ctrl+C to stop gracefully.
+
+    Runs in the background, monitoring Cursor database files and Claude Code
+    session files for changes, automatically ingesting new chats.
+    Press Ctrl+C to stop gracefully.
     """
     # Get database from context
     if db_path:
@@ -70,28 +71,54 @@ def watch(ctx, source, poll_interval, debounce, use_polling, db_path):
             # Create new database connection in this thread (SQLite is thread-local)
             thread_db = ChatDatabase(db_path_str)
             thread_aggregator = ChatAggregator(thread_db)
-            
+
             try:
                 sources_to_ingest = []
                 if source == "cursor" or source == "all":
                     sources_to_ingest.append("cursor")
                 if source == "claude" or source == "all":
                     sources_to_ingest.append("claude")
-                
+                if source == "chatgpt" or source == "all":
+                    sources_to_ingest.append("chatgpt")
+                if source == "code" or source == "all":
+                    sources_to_ingest.append("code")
+
                 for source_name in sources_to_ingest:
                     if source_name == "cursor":
                         stats = thread_aggregator.ingest_all(incremental=True)
-                        click.echo(f"Auto-ingestion: {stats['ingested']} ingested, "
-                                 f"{stats['skipped']} skipped, {stats['errors']} errors")
+                        click.echo(f"Cursor auto-ingestion: {stats['ingested']} ingested, "
+                                   f"{stats['skipped']} skipped, {stats['errors']} errors")
                     elif source_name == "claude":
                         stats = thread_aggregator.ingest_claude(incremental=True)
-                        click.echo(f"Auto-ingestion: {stats['ingested']} ingested, "
-                                 f"{stats['skipped']} skipped, {stats['errors']} errors")
+                        click.echo(f"Claude.ai auto-ingestion: {stats['ingested']} ingested, "
+                                   f"{stats['skipped']} skipped, {stats['errors']} errors")
+                    elif source_name == "chatgpt":
+                        stats = thread_aggregator.ingest_chatgpt(incremental=True)
+                        click.echo(f"ChatGPT auto-ingestion: {stats['ingested']} ingested, "
+                                   f"{stats['skipped']} skipped, {stats['errors']} errors")
+                    elif source_name == "code":
+                        stats = thread_aggregator.ingest_claude_code(incremental=True)
+                        click.echo(f"Claude Code auto-ingestion: {stats['ingested']} ingested, "
+                                   f"{stats['skipped']} skipped, {stats['errors']} errors")
             except Exception as e:
                 click.secho(f"Error during automatic ingestion: {e}", fg='red', err=True)
             finally:
                 thread_db.close()
-        
+
+        def do_claude_code_ingestion():
+            """Perform Claude Code incremental ingestion (separate callback for file watcher)."""
+            thread_db = ChatDatabase(db_path_str)
+            thread_aggregator = ChatAggregator(thread_db)
+
+            try:
+                stats = thread_aggregator.ingest_claude_code(incremental=True)
+                click.echo(f"Claude Code auto-ingestion: {stats['ingested']} ingested, "
+                           f"{stats['skipped']} skipped, {stats['errors']} errors")
+            except Exception as e:
+                click.secho(f"Error during Claude Code ingestion: {e}", fg='red', err=True)
+            finally:
+                thread_db.close()
+
         # Perform initial ingestion
         click.echo("Performing initial ingestion...")
         # Use main thread connection for initial ingestion
@@ -100,25 +127,46 @@ def watch(ctx, source, poll_interval, debounce, use_polling, db_path):
             sources_to_ingest.append("cursor")
         if source == "claude" or source == "all":
             sources_to_ingest.append("claude")
-        
+        if source == "chatgpt" or source == "all":
+            sources_to_ingest.append("chatgpt")
+        if source == "code" or source == "all":
+            sources_to_ingest.append("code")
+
         for source_name in sources_to_ingest:
             if source_name == "cursor":
                 stats = aggregator.ingest_all(incremental=True)
-                click.echo(f"Initial ingestion: {stats['ingested']} ingested, "
-                         f"{stats['skipped']} skipped, {stats['errors']} errors")
+                click.echo(f"Cursor initial: {stats['ingested']} ingested, "
+                           f"{stats['skipped']} skipped, {stats['errors']} errors")
             elif source_name == "claude":
                 stats = aggregator.ingest_claude(incremental=True)
-                click.echo(f"Initial ingestion: {stats['ingested']} ingested, "
-                         f"{stats['skipped']} skipped, {stats['errors']} errors")
+                click.echo(f"Claude.ai initial: {stats['ingested']} ingested, "
+                           f"{stats['skipped']} skipped, {stats['errors']} errors")
+            elif source_name == "chatgpt":
+                stats = aggregator.ingest_chatgpt(incremental=True)
+                click.echo(f"ChatGPT initial: {stats['ingested']} ingested, "
+                           f"{stats['skipped']} skipped, {stats['errors']} errors")
+            elif source_name == "code":
+                stats = aggregator.ingest_claude_code(incremental=True)
+                click.echo(f"Claude Code initial: {stats['ingested']} ingested, "
+                           f"{stats['skipped']} skipped, {stats['errors']} errors")
         
         # Start watcher
         from src.services.watcher import IngestionWatcher
-        
+
+        # Determine which sources to watch based on user selection
+        watch_sources = []
+        if source == "cursor" or source == "all":
+            watch_sources.append("cursor")
+        if source == "code" or source == "all":
+            watch_sources.append("code")
+
         watcher = IngestionWatcher(
             ingestion_callback=do_ingestion,
             use_watchdog=None if not use_polling else False,
             debounce_seconds=debounce,
-            poll_interval=poll_interval
+            poll_interval=poll_interval,
+            sources=watch_sources,
+            claude_code_callback=do_claude_code_ingestion,
         )
         
         # Handle shutdown gracefully

@@ -21,9 +21,9 @@ from src.cli.orchestrators.ingestion import IngestionOrchestrator
 @db_option
 @click.option(
     '--source',
-    type=click.Choice(['cursor', 'claude', 'chatgpt', 'all']),
+    type=click.Choice(['cursor', 'claude', 'chatgpt', 'code', 'all']),
     default='cursor',
-    help='Source to ingest from'
+    help='Source to ingest from (code = Claude Code CLI)'
 )
 @click.option(
     '--incremental',
