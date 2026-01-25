@@ -17,6 +17,7 @@ from src.core.db import ChatDatabase
 from src.core.models import Chat, ChatMode, Message, MessageRole, MessageType, Workspace
 from src.core.source_schemas.cursor import Bubble, ComposerData, ComposerHead
 from src.readers import ChatGPTReader, ClaudeReader
+from src.readers.claude_code_reader import ClaudeCodeReader
 from src.readers.global_reader import GlobalComposerReader
 from src.readers.plan_reader import PlanRegistryReader
 from src.readers.workspace_reader import WorkspaceStateReader
@@ -1724,3 +1725,287 @@ class ChatAggregator:
             timestamp_parser=self._parse_chatgpt_timestamp,
         )
         return self._ingest_web_source(config, progress_callback, incremental)
+
+    def _convert_claude_code_to_chat(
+        self, session_data: Dict[str, Any]
+    ) -> Optional[Chat]:
+        """
+        Convert Claude Code session data to Chat domain model.
+
+        Parameters
+        ----------
+        session_data : Dict[str, Any]
+            Session data from ClaudeCodeReader
+
+        Returns
+        -------
+        Chat
+            Chat domain model, or None if conversion fails
+        """
+        session_id = session_data.get("session_id")
+        if not session_id:
+            return None
+
+        # Extract title from summary or metadata
+        title = session_data.get("summary") or "Untitled Session"
+        if title == "Untitled Session":
+            # Try to extract from metadata slug
+            metadata = session_data.get("metadata", {})
+            slug = metadata.get("slug")
+            if slug:
+                title = slug.replace("-", " ").title()
+
+        # Extract messages
+        raw_messages = session_data.get("messages", [])
+        messages = []
+        model_used = None
+        total_input_tokens = 0
+        total_output_tokens = 0
+
+        for msg_data in raw_messages:
+            # Map role
+            role_str = msg_data.get("role", "user")
+            if role_str == "user":
+                role = MessageRole.USER
+            elif role_str == "assistant":
+                role = MessageRole.ASSISTANT
+            else:
+                continue
+
+            # Extract text content
+            text = msg_data.get("content", "")
+
+            # Extract thinking content if present
+            thinking = msg_data.get("thinking")
+            if thinking:
+                text = f"[Thinking]\n{thinking}\n\n{text}" if text else f"[Thinking]\n{thinking}"
+
+            # Extract tool calls if present
+            tool_calls = msg_data.get("tool_calls")
+            if tool_calls:
+                tool_summary = []
+                for tc in tool_calls:
+                    tool_name = tc.get("name", "unknown")
+                    tool_summary.append(f"[Tool: {tool_name}]")
+                if tool_summary:
+                    tool_text = "\n".join(tool_summary)
+                    text = f"{text}\n\n{tool_text}" if text else tool_text
+
+            # Parse timestamp
+            msg_created_at = None
+            timestamp_str = msg_data.get("timestamp")
+            if timestamp_str:
+                try:
+                    if timestamp_str.endswith("Z"):
+                        timestamp_str = timestamp_str[:-1] + "+00:00"
+                    msg_created_at = datetime.fromisoformat(timestamp_str)
+                except (ValueError, TypeError):
+                    pass
+
+            # Classify message type
+            if msg_data.get("thinking"):
+                message_type = MessageType.THINKING
+            elif msg_data.get("tool_calls"):
+                message_type = MessageType.TOOL_CALL
+            elif text:
+                message_type = MessageType.RESPONSE
+            else:
+                message_type = MessageType.EMPTY
+
+            # Extract model and usage from assistant messages
+            if role == MessageRole.ASSISTANT:
+                if not model_used:
+                    model_used = msg_data.get("model")
+                usage = msg_data.get("usage", {})
+                if usage:
+                    total_input_tokens += usage.get("input_tokens", 0)
+                    total_output_tokens += usage.get("output_tokens", 0)
+
+            message = Message(
+                role=role,
+                text=text,
+                rich_text="",
+                created_at=msg_created_at,
+                cursor_bubble_id=msg_data.get("uuid"),
+                raw_json=msg_data,
+                message_type=message_type,
+            )
+            messages.append(message)
+
+        # Skip empty sessions
+        if not messages:
+            return None
+
+        # Extract timestamps from first/last messages
+        created_at = messages[0].created_at if messages else None
+        last_updated_at = messages[-1].created_at if messages else None
+
+        # Determine mode based on tool usage
+        has_tool_calls = any(m.message_type == MessageType.TOOL_CALL for m in messages)
+        mode = ChatMode.AGENT if has_tool_calls else ChatMode.CHAT
+
+        # Calculate estimated cost (rough estimate based on Claude pricing)
+        estimated_cost = None
+        if total_input_tokens or total_output_tokens:
+            # Use approximate pricing (varies by model)
+            # Sonnet: $3/1M input, $15/1M output
+            # Opus: $15/1M input, $75/1M output
+            if model_used and "opus" in model_used.lower():
+                estimated_cost = (total_input_tokens * 15 + total_output_tokens * 75) / 1_000_000
+            else:
+                estimated_cost = (total_input_tokens * 3 + total_output_tokens * 15) / 1_000_000
+
+        # Create chat
+        chat = Chat(
+            cursor_composer_id=session_id,
+            workspace_id=None,  # Could be inferred from project_path later
+            title=title,
+            mode=mode,
+            created_at=created_at,
+            last_updated_at=last_updated_at,
+            source="claude-code",
+            summary=session_data.get("summary"),
+            model=model_used,
+            estimated_cost=estimated_cost,
+            messages=messages,
+            relevant_files=[],  # Could extract from tool calls later
+        )
+
+        return chat
+
+    def ingest_claude_code(
+        self, progress_callback: Optional[Callable] = None, incremental: bool = False
+    ) -> Dict[str, int]:
+        """
+        Ingest chats from Claude Code local storage.
+
+        Parameters
+        ----------
+        progress_callback : callable, optional
+            Callback function(session_id, total, current) for progress updates
+        incremental : bool
+            If True, only process sessions updated since last run
+
+        Returns
+        -------
+        Dict[str, int]
+            Statistics: {"ingested": count, "skipped": count, "errors": count}
+        """
+        source = "claude-code"
+        start_time = datetime.now()
+
+        logger.info(
+            "Starting Claude Code chat ingestion%s...",
+            " (incremental)" if incremental else "",
+        )
+
+        reader = ClaudeCodeReader()
+        stats = {"ingested": 0, "skipped": 0, "errors": 0, "subagents": 0}
+
+        # Check for incremental state
+        last_timestamp = None
+        if incremental:
+            state = self.db.get_ingestion_state(source)
+            if state and state.get("last_processed_timestamp"):
+                try:
+                    last_timestamp = datetime.fromisoformat(
+                        state["last_processed_timestamp"]
+                    )
+                    logger.info("Last ingestion: %s", last_timestamp)
+                except (ValueError, TypeError):
+                    pass
+
+        try:
+            # Stream sessions from all projects
+            sessions = list(reader.read_all_sessions())
+            total = len(sessions)
+            logger.info("Found %d Claude Code sessions", total)
+
+            last_processed_timestamp = None
+            last_session_id = None
+
+            for idx, session_data in enumerate(sessions, 1):
+                session_id = session_data.get("session_id", f"unknown-{idx}")
+
+                if progress_callback and total:
+                    progress_callback(session_id, total, idx)
+
+                try:
+                    # Get session timestamp for incremental check
+                    session_messages = session_data.get("messages", [])
+                    if session_messages:
+                        last_msg_ts_str = session_messages[-1].get("timestamp")
+                        if last_msg_ts_str:
+                            try:
+                                if last_msg_ts_str.endswith("Z"):
+                                    last_msg_ts_str = last_msg_ts_str[:-1] + "+00:00"
+                                session_last_updated = datetime.fromisoformat(last_msg_ts_str)
+
+                                # Incremental: skip if not updated
+                                if incremental and last_timestamp:
+                                    if session_last_updated <= last_timestamp:
+                                        stats["skipped"] += 1
+                                        continue
+                            except (ValueError, TypeError):
+                                pass
+
+                    # Convert to domain model
+                    chat = self._convert_claude_code_to_chat(session_data)
+                    if not chat:
+                        stats["skipped"] += 1
+                        continue
+
+                    # Store in database
+                    self.db.upsert_chat(chat)
+                    stats["ingested"] += 1
+
+                    # Track last processed timestamp
+                    if chat.last_updated_at:
+                        if not last_processed_timestamp or chat.last_updated_at > last_processed_timestamp:
+                            last_processed_timestamp = chat.last_updated_at
+                            last_session_id = session_id
+
+                    # Process subagents if present
+                    subagents = session_data.get("subagents", [])
+                    for subagent_data in subagents:
+                        try:
+                            subagent_chat = self._convert_claude_code_to_chat(subagent_data)
+                            if subagent_chat:
+                                # Prefix subagent title with parent session
+                                subagent_chat.title = f"[Subagent] {subagent_chat.title}"
+                                self.db.upsert_chat(subagent_chat)
+                                stats["subagents"] += 1
+                        except Exception as e:
+                            logger.debug("Error processing subagent: %s", e)
+
+                    if idx % 50 == 0:
+                        logger.info("Processed %d/%d Claude Code sessions...", idx, total)
+
+                except Exception as e:
+                    logger.error("Error processing session %s: %s", session_id, e)
+                    stats["errors"] += 1
+
+            # Update ingestion state
+            self.db.update_ingestion_state(
+                source=source,
+                last_run_at=start_time,
+                last_processed_timestamp=last_processed_timestamp.isoformat()
+                if last_processed_timestamp
+                else None,
+                last_composer_id=last_session_id,
+                stats=stats,
+            )
+
+            logger.info(
+                "Claude Code ingestion complete: %d ingested, %d subagents, %d skipped, %d errors",
+                stats["ingested"],
+                stats["subagents"],
+                stats["skipped"],
+                stats["errors"],
+            )
+
+        except Exception as e:
+            logger.error("Error during Claude Code ingestion: %s", e)
+            stats["errors"] += 1
+
+        return stats
