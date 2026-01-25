@@ -5,5 +5,6 @@ Part of the ELT (Extract-Load-Transform) architecture.
 """
 
 from .base import BaseExtractor
+from .cursor import CursorExtractor
 
-__all__ = ["BaseExtractor"]
+__all__ = ["BaseExtractor", "CursorExtractor"]
