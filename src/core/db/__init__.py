@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .connection import DatabaseConnection
 from .schema import SchemaManager
+from .raw_storage import RawStorage
 from .repositories.chat import ChatRepository
 from .repositories.workspace import WorkspaceRepository
 from .repositories.project import ProjectRepository
@@ -435,6 +436,8 @@ __all__ = [
     # Connection/Schema
     "DatabaseConnection",
     "SchemaManager",
+    # Raw storage (ELT)
+    "RawStorage",
     # Repositories
     "ChatRepository",
     "WorkspaceRepository",
