@@ -8,5 +8,6 @@ from .base import BaseTransformer
 from .chatgpt import ChatGPTTransformer
 from .claude import ClaudeTransformer
 from .claude_code import ClaudeCodeTransformer
+from .cursor import CursorTransformer
 
-__all__ = ["BaseTransformer", "ChatGPTTransformer", "ClaudeTransformer", "ClaudeCodeTransformer"]
+__all__ = ["BaseTransformer", "ChatGPTTransformer", "ClaudeTransformer", "ClaudeCodeTransformer", "CursorTransformer"]
