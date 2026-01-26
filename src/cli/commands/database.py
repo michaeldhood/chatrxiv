@@ -3,12 +3,16 @@ Database-related CLI commands.
 
 Commands for ingesting, searching, importing, and exporting chat data
 from the local database.
+
+Includes ELT (Extract-Load-Transform) commands for raw data preservation.
 """
 import click
 from pathlib import Path
 
 from src.core.db import ChatDatabase
+from src.core.db.raw_storage import RawStorage
 from src.core.config import get_default_db_path
+from src.services.aggregator import ChatAggregator
 from src.services.legacy_importer import LegacyChatImporter
 from src.services.chatgpt_export_importer import ChatGPTExportImporter
 from src.services.search import ChatSearchService
@@ -62,6 +66,149 @@ def ingest(ctx, db_path, source, incremental):
 
     except Exception as e:
         click.secho(f"Error during ingestion: {e}", fg='red', err=True)
+        if ctx.obj.verbose:
+            import traceback
+            click.echo(traceback.format_exc(), err=True)
+        raise click.Abort()
+
+
+@click.command('extract-raw')
+@db_option
+@click.option(
+    '--source',
+    type=click.Choice(['cursor', 'claude.ai', 'chatgpt', 'claude-code', 'all']),
+    default='cursor',
+    help='Source to extract from'
+)
+@click.pass_context
+def extract_raw(ctx, db_path, source):
+    """Extract raw data from source to RawStorage (ELT pipeline).
+
+    This is the 'E' in ELT - pure extraction without transformation.
+    Raw data is preserved in raw.db for later transformation.
+
+    Examples:
+        chatrxiv extract --source cursor
+        chatrxiv extract --source all
+    """
+    if db_path:
+        ctx.obj.db_path = Path(db_path)
+
+    db = ctx.obj.get_db()
+    raw_storage = RawStorage()
+
+    try:
+        aggregator = ChatAggregator(db, raw_storage)
+
+        def progress_callback(item_id, total, current):
+            if current % 100 == 0 or current == total:
+                click.echo(f"Progress: {current}/{total} items extracted...")
+
+        sources = ['cursor', 'claude.ai', 'chatgpt', 'claude-code'] if source == 'all' else [source]
+
+        total_stats = {'extracted': 0, 'skipped': 0, 'errors': 0}
+
+        for src in sources:
+            click.echo(f"\nExtracting from {src}...")
+            try:
+                stats = aggregator.extract(src, progress_callback=progress_callback)
+                total_stats['extracted'] += stats.get('extracted', 0)
+                total_stats['skipped'] += stats.get('skipped', 0)
+                total_stats['errors'] += stats.get('errors', 0)
+            except Exception as e:
+                click.secho(f"  Error extracting {src}: {e}", fg='yellow')
+                total_stats['errors'] += 1
+
+        click.echo(f"\nExtraction complete!")
+        click.secho(f"  Extracted: {total_stats['extracted']} items", fg='green')
+        click.echo(f"  Skipped: {total_stats['skipped']} items")
+        if total_stats['errors'] > 0:
+            click.secho(f"  Errors: {total_stats['errors']} items", fg='yellow')
+
+    except Exception as e:
+        click.secho(f"Error during extraction: {e}", fg='red', err=True)
+        if ctx.obj.verbose:
+            import traceback
+            click.echo(traceback.format_exc(), err=True)
+        raise click.Abort()
+
+
+@click.command('transform-raw')
+@db_option
+@click.option(
+    '--source',
+    type=click.Choice(['cursor', 'claude.ai', 'chatgpt', 'claude-code', 'all']),
+    default='cursor',
+    help='Source to transform from RawStorage'
+)
+@click.option(
+    '--incremental',
+    is_flag=True,
+    help='Only transform data extracted since last transform'
+)
+@click.option(
+    '--rebuild',
+    is_flag=True,
+    help='Re-transform all raw data (ignores incremental)'
+)
+@click.pass_context
+def transform_raw(ctx, db_path, source, incremental, rebuild):
+    """Transform raw data from RawStorage to domain models (ELT pipeline).
+
+    This is the 'T' in ELT - reads from raw.db and writes to chats.db.
+    Useful for re-processing data with updated transformation logic.
+
+    Examples:
+        chatrxiv transform --source cursor
+        chatrxiv transform --source all --rebuild
+    """
+    if db_path:
+        ctx.obj.db_path = Path(db_path)
+
+    db = ctx.obj.get_db()
+    raw_storage = RawStorage()
+
+    # --rebuild overrides --incremental
+    if rebuild:
+        incremental = False
+
+    try:
+        aggregator = ChatAggregator(db, raw_storage)
+
+        def progress_callback(item_id, total, current):
+            if current % 100 == 0 or current == total:
+                click.echo(f"Progress: {current}/{total} items transformed...")
+
+        sources = ['cursor', 'claude.ai', 'chatgpt', 'claude-code'] if source == 'all' else [source]
+
+        total_stats = {'transformed': 0, 'skipped': 0, 'errors': 0}
+
+        mode_str = "incremental" if incremental else "full"
+        click.echo(f"Transforming raw data ({mode_str} mode)...")
+
+        for src in sources:
+            click.echo(f"\nTransforming {src}...")
+            try:
+                stats = aggregator.transform(
+                    src,
+                    incremental=incremental,
+                    progress_callback=progress_callback,
+                )
+                total_stats['transformed'] += stats.get('transformed', 0)
+                total_stats['skipped'] += stats.get('skipped', 0)
+                total_stats['errors'] += stats.get('errors', 0)
+            except Exception as e:
+                click.secho(f"  Error transforming {src}: {e}", fg='yellow')
+                total_stats['errors'] += 1
+
+        click.echo(f"\nTransformation complete!")
+        click.secho(f"  Transformed: {total_stats['transformed']} chats", fg='green')
+        click.echo(f"  Skipped: {total_stats['skipped']} chats")
+        if total_stats['errors'] > 0:
+            click.secho(f"  Errors: {total_stats['errors']} chats", fg='yellow')
+
+    except Exception as e:
+        click.secho(f"Error during transformation: {e}", fg='red', err=True)
         if ctx.obj.verbose:
             import traceback
             click.echo(traceback.format_exc(), err=True)

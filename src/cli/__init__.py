@@ -69,7 +69,17 @@ cli.add_command(extract)
 cli.add_command(convert)
 
 # Phase 4: Database commands
-from .commands.database import ingest, import_legacy, import_chatgpt, search, export, rebuild_index, cleanup
+from .commands.database import (
+    ingest,
+    import_legacy,
+    import_chatgpt,
+    search,
+    export,
+    rebuild_index,
+    cleanup,
+    extract_raw,
+    transform_raw,
+)
 
 cli.add_command(ingest)
 cli.add_command(import_legacy)
@@ -78,6 +88,8 @@ cli.add_command(search)
 cli.add_command(export)
 cli.add_command(rebuild_index)
 cli.add_command(cleanup)
+cli.add_command(extract_raw)
+cli.add_command(transform_raw)
 
 # Tag commands
 from .commands.tag import tag
