@@ -3,6 +3,9 @@ Chat aggregator service.
 
 Orchestrates extraction from Cursor databases, linking workspace metadata
 to global composer conversations, and storing normalized data.
+
+Also supports ELT (Extract-Load-Transform) pipeline using extractors and
+transformers for raw data preservation and re-transformation.
 """
 
 import logging
@@ -14,13 +17,26 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from pydantic import ValidationError
 
 from src.core.db import ChatDatabase
+from src.core.db.raw_storage import RawStorage
 from src.core.models import Chat, ChatMode, Message, MessageRole, MessageType, Workspace
 from src.core.source_schemas.cursor import Bubble, ComposerData, ComposerHead
+from src.extractors import (
+    ChatGPTExtractor,
+    ClaudeCodeExtractor,
+    ClaudeExtractor,
+    CursorExtractor,
+)
 from src.readers import ChatGPTReader, ClaudeReader
 from src.readers.claude_code_reader import ClaudeCodeReader
 from src.readers.global_reader import GlobalComposerReader
 from src.readers.plan_reader import PlanRegistryReader
 from src.readers.workspace_reader import WorkspaceStateReader
+from src.transformers import (
+    ChatGPTTransformer,
+    ClaudeCodeTransformer,
+    ClaudeTransformer,
+    CursorTransformer,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -47,21 +63,222 @@ class ChatAggregator:
     - Linking composers to workspaces
     - Converting to domain models
     - Storing in local database
+
+    Also supports ELT pipeline:
+    - extract(source): Extract raw data to RawStorage
+    - transform(source): Transform raw data to domain models
+    - ingest_elt(source): Full ELT pipeline (extract + transform)
     """
 
-    def __init__(self, db: ChatDatabase):
+    # Valid source names for ELT operations
+    VALID_SOURCES = ("cursor", "claude.ai", "chatgpt", "claude-code")
+
+    def __init__(self, db: ChatDatabase, raw_storage: Optional[RawStorage] = None):
         """
         Initialize aggregator.
 
         Parameters
-        ----
+        ----------
         db : ChatDatabase
             Database instance for storing aggregated data
+        raw_storage : RawStorage, optional
+            Raw storage instance for ELT operations. If None, ELT methods
+            will create a default RawStorage instance when called.
         """
         self.db = db
+        self._raw_storage = raw_storage
         self.workspace_reader = WorkspaceStateReader()
         self.global_reader = GlobalComposerReader()
         self.plan_reader = PlanRegistryReader()
+
+        # Lazy-initialized extractors and transformers
+        self._extractors: Optional[Dict[str, Any]] = None
+        self._transformers: Optional[Dict[str, Any]] = None
+
+    @property
+    def raw_storage(self) -> RawStorage:
+        """Get or create RawStorage instance."""
+        if self._raw_storage is None:
+            self._raw_storage = RawStorage()
+        return self._raw_storage
+
+    def _get_extractors(self) -> Dict[str, Any]:
+        """Lazy-initialize extractors."""
+        if self._extractors is None:
+            self._extractors = {
+                "cursor": CursorExtractor(self.raw_storage),
+                "claude.ai": ClaudeExtractor(self.raw_storage),
+                "chatgpt": ChatGPTExtractor(self.raw_storage),
+                "claude-code": ClaudeCodeExtractor(self.raw_storage),
+            }
+        return self._extractors
+
+    def _get_transformers(self) -> Dict[str, Any]:
+        """Lazy-initialize transformers."""
+        if self._transformers is None:
+            self._transformers = {
+                "cursor": CursorTransformer(
+                    self.raw_storage, self.db, global_reader=self.global_reader
+                ),
+                "claude.ai": ClaudeTransformer(self.raw_storage, self.db),
+                "chatgpt": ChatGPTTransformer(self.raw_storage, self.db),
+                "claude-code": ClaudeCodeTransformer(self.raw_storage, self.db),
+            }
+        return self._transformers
+
+    def extract(
+        self,
+        source: str,
+        progress_callback: Optional[Callable] = None,
+    ) -> Dict[str, int]:
+        """
+        Extract raw data from a source and store in RawStorage.
+
+        This is the 'E' in ELT - pure extraction without transformation.
+
+        Parameters
+        ----------
+        source : str
+            Source identifier: 'cursor', 'claude.ai', 'chatgpt', 'claude-code'
+        progress_callback : callable, optional
+            Callback(source_id, total, current) for progress updates
+
+        Returns
+        -------
+        Dict[str, int]
+            Statistics: {'extracted': count, 'skipped': count, 'errors': count}
+
+        Raises
+        ------
+        ValueError
+            If source is not a valid source identifier
+        """
+        if source not in self.VALID_SOURCES:
+            raise ValueError(
+                f"Invalid source '{source}'. Valid sources: {self.VALID_SOURCES}"
+            )
+
+        logger.info("Starting extraction for source: %s", source)
+        extractor = self._get_extractors()[source]
+        stats = extractor.extract_all(progress_callback=progress_callback)
+        logger.info(
+            "Extraction complete for %s: %d extracted, %d skipped, %d errors",
+            source,
+            stats.get("extracted", 0),
+            stats.get("skipped", 0),
+            stats.get("errors", 0),
+        )
+        return stats
+
+    def transform(
+        self,
+        source: str,
+        incremental: bool = False,
+        progress_callback: Optional[Callable] = None,
+    ) -> Dict[str, int]:
+        """
+        Transform raw data from RawStorage to domain models.
+
+        This is the 'T' in ELT - reads from RawStorage and writes to domain DB.
+
+        Parameters
+        ----------
+        source : str
+            Source identifier: 'cursor', 'claude.ai', 'chatgpt', 'claude-code'
+        incremental : bool
+            If True, only transform data extracted since last transform
+        progress_callback : callable, optional
+            Callback(source_id, total, current) for progress updates
+
+        Returns
+        -------
+        Dict[str, int]
+            Statistics: {'transformed': count, 'skipped': count, 'errors': count}
+
+        Raises
+        ------
+        ValueError
+            If source is not a valid source identifier
+        """
+        if source not in self.VALID_SOURCES:
+            raise ValueError(
+                f"Invalid source '{source}'. Valid sources: {self.VALID_SOURCES}"
+            )
+
+        logger.info(
+            "Starting transformation for source: %s (incremental=%s)",
+            source,
+            incremental,
+        )
+        transformer = self._get_transformers()[source]
+        stats = transformer.transform_all(
+            incremental=incremental,
+            progress_callback=progress_callback,
+        )
+        logger.info(
+            "Transformation complete for %s: %d transformed, %d skipped, %d errors",
+            source,
+            stats.get("transformed", 0),
+            stats.get("skipped", 0),
+            stats.get("errors", 0),
+        )
+        return stats
+
+    def ingest_elt(
+        self,
+        source: str,
+        incremental: bool = False,
+        progress_callback: Optional[Callable] = None,
+    ) -> Dict[str, int]:
+        """
+        Full ELT pipeline: Extract raw data, then Transform to domain models.
+
+        Combines extract() and transform() in one operation.
+
+        Parameters
+        ----------
+        source : str
+            Source identifier: 'cursor', 'claude.ai', 'chatgpt', 'claude-code'
+        incremental : bool
+            If True, only process new/updated data
+        progress_callback : callable, optional
+            Callback(source_id, total, current) for progress updates
+
+        Returns
+        -------
+        Dict[str, int]
+            Combined statistics from extraction and transformation
+        """
+        logger.info("Starting ELT pipeline for source: %s", source)
+
+        # Extract
+        extract_stats = self.extract(source, progress_callback=progress_callback)
+
+        # Transform
+        transform_stats = self.transform(
+            source,
+            incremental=incremental,
+            progress_callback=progress_callback,
+        )
+
+        # Combine stats
+        combined_stats = {
+            "extracted": extract_stats.get("extracted", 0),
+            "extract_skipped": extract_stats.get("skipped", 0),
+            "extract_errors": extract_stats.get("errors", 0),
+            "transformed": transform_stats.get("transformed", 0),
+            "transform_skipped": transform_stats.get("skipped", 0),
+            "transform_errors": transform_stats.get("errors", 0),
+        }
+
+        logger.info(
+            "ELT pipeline complete for %s: %d extracted, %d transformed",
+            source,
+            combined_stats["extracted"],
+            combined_stats["transformed"],
+        )
+
+        return combined_stats
 
     def _resolve_conversation_from_headers(
         self, composer_id: str, headers: List[Dict[str, Any]]
