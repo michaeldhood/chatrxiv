@@ -121,11 +121,23 @@ def export_chats_to_markdown(chats_data: List[Dict[str, Any]], output_dir: str =
             # Write chat title
             f.write(f"# {chat['title']}\n\n")
             
+            # Write model information if available
+            models_used = chat.get('models_used', [])
+            if models_used:
+                models_str = ', '.join(models_used)
+                f.write(f"**Models used:** {models_str}\n\n")
+            
             # Write each message
             for message in chat['messages']:
                 role = message.get('type', 'Unknown')
                 content = message.get('content', '')
-                f.write(f"## {role}\n\n{content}\n\n")
+                model_type = message.get('modelType')
+                
+                # Include model info in message header for AI responses (modelType only exists for AI)
+                if model_type:
+                    f.write(f"## {role} ({model_type})\n\n{content}\n\n")
+                else:
+                    f.write(f"## {role}\n\n{content}\n\n")
         
         generated_files.append(str(filepath))
         logger.info("Exported chat to %s", filepath)
@@ -151,19 +163,26 @@ def convert_df_to_markdown(df: pd.DataFrame, output_dir: str = '.') -> List[str]
     
     for (tab_id, chat_title), group in grouped:
         messages = []
+        models_used = set()
         
         # Convert each row to a message format
         for _, row in group.iterrows():
+            model_type = row.get('modelType')
+            if model_type:
+                models_used.add(model_type)
+            
             message = {
                 'type': row['type'],
-                'content': row['text'] or row['rawText'] or ''
+                'content': row['text'] or row['rawText'] or '',
+                'modelType': model_type
             }
             messages.append(message)
         
         chats_data.append({
             'id': tab_id,
             'title': chat_title,
-            'messages': messages
+            'messages': messages,
+            'models_used': sorted(list(models_used)) if models_used else []
         })
     
     return export_chats_to_markdown(chats_data, output_dir)
