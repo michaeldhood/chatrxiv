@@ -9,6 +9,7 @@ from pathlib import Path
 import logging
 
 from src.tagger import TagManager
+from src.summarizer import generate_chat_summary, format_summary_markdown
 
 logger = logging.getLogger(__name__)
 
@@ -94,13 +95,14 @@ def parse_chat_json(file_path: str, tag_manager: Optional[TagManager] = None) ->
     return df
 
 
-def export_chats_to_markdown(chats_data: List[Dict[str, Any]], output_dir: str = '.') -> List[str]:
+def export_chats_to_markdown(chats_data: List[Dict[str, Any]], output_dir: str = '.', include_summary: bool = True) -> List[str]:
     """
     Export chat data to markdown files.
     
     Args:
         chats_data: A list of chat data dictionaries, each containing 'id', 'title', and 'messages'
         output_dir: Directory where markdown files will be saved
+        include_summary: Whether to include a summary block at the top of each file
     
     Returns:
         List of generated file paths
@@ -120,6 +122,12 @@ def export_chats_to_markdown(chats_data: List[Dict[str, Any]], output_dir: str =
         with open(filepath, 'w', encoding='utf-8') as f:
             # Write chat title
             f.write(f"# {chat['title']}\n\n")
+            
+            # Generate and write summary if requested
+            if include_summary:
+                summary = generate_chat_summary(chat['messages'], chat['title'])
+                summary_md = format_summary_markdown(summary)
+                f.write(f"{summary_md}\n")
             
             # Write each message
             for message in chat['messages']:
