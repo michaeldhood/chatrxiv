@@ -73,6 +73,7 @@ from .commands.database import (
     ingest,
     import_legacy,
     import_chatgpt,
+    import_claude,
     search,
     export,
     rebuild_index,
@@ -84,6 +85,7 @@ from .commands.database import (
 cli.add_command(ingest)
 cli.add_command(import_legacy)
 cli.add_command(import_chatgpt)
+cli.add_command(import_claude)
 cli.add_command(search)
 cli.add_command(export)
 cli.add_command(rebuild_index)
