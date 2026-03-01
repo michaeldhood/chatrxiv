@@ -1,6 +1,6 @@
 pandas>=1.0.0
-pytest>=6.0.0
-pytest-cov>=2.10.0
+pytest==9.0.2
+pytest-cov==7.0.0
 fastapi>=0.109.0
 uvicorn[standard]>=0.27.0
 pydantic>=2.0.0
@@ -9,4 +9,6 @@ watchdog>=3.0.0  # Optional: for file system watching (falls back to polling if 
 click>=8.0.0  # Modern CLI framework for refactored CLI
 anthropic>=0.34.0  # Claude API for chat summarization
 matplotlib>=3.5.0  # For visualization
-mcp[cli]>=1.0.0  # Model Context Protocol server for LLM access
+fastmcp==2.14.5  # Pinned for cloud PR validation compatibility
+mcp[cli]==1.24.0  # Pinned MCP SDK for stable protocol/tooling checks
+asyncpg==0.31.0  # Async PostgreSQL dependency for import checks
