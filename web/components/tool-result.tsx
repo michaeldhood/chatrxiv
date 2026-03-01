@@ -59,13 +59,13 @@ export function ToolResult({ result }: ToolResultProps) {
             <span className="text-xs font-semibold text-muted-foreground uppercase">Terminal Output</span>
             {getStatusBadge()}
           </div>
-          <pre className="bg-[#0d1117] border border-border rounded-lg p-4 overflow-x-auto text-sm font-mono text-foreground whitespace-pre-wrap">
+          <pre className="bg-accent-green/10 border border-accent-green/30 rounded-lg p-4 overflow-x-auto text-sm font-mono text-foreground whitespace-pre-wrap">
             {displayText}
           </pre>
           {isTruncated && (
             <button
               onClick={() => setShowFullOutput(!showFullOutput)}
-              className="text-xs text-accent-purple hover:text-accent-purple/80"
+              className="text-xs text-accent-green hover:text-accent-green/80"
             >
               {showFullOutput ? 'Show less' : `Show full output (${result.output.length} chars)`}
             </button>
