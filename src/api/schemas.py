@@ -83,6 +83,20 @@ class ChatDetail(BaseModel):
     processed_messages: List[Dict[str, Any]] = Field(default_factory=list)
 
 
+class BulkChatsRequest(BaseModel):
+    """Request body for bulk chat fetch."""
+
+    chat_ids: List[int] = Field(..., min_length=1, max_length=100)
+
+
+class BulkChatsResponse(BaseModel):
+    """Response for /api/chats/bulk endpoint."""
+
+    chats: List[ChatDetail]
+    requested: int
+    found: int
+
+
 class SearchResult(BaseModel):
     """Search result with highlighted snippet."""
 

@@ -13,6 +13,8 @@ logger = logging.getLogger(__name__)
 
 from src.api.deps import get_db
 from src.api.schemas import (
+    BulkChatsRequest,
+    BulkChatsResponse,
     ChatDetail,
     ChatsResponse,
     ChatSummary,
@@ -469,6 +471,34 @@ def get_chats(
         page=page,
         limit=limit,
         filter=empty_filter,
+    )
+
+
+@router.post("/chats/bulk", response_model=BulkChatsResponse)
+def get_chats_bulk(
+    body: BulkChatsRequest,
+    db: ChatDatabase = Depends(get_db),
+):
+    """
+    Fetch multiple chats by ID in a single request.
+
+    Returns full chat details (with messages) for each requested chat.
+    Chats are returned in the same order as the requested IDs.
+    IDs that don't exist are silently skipped.
+
+    Parameters
+    ----------
+    body : BulkChatsRequest
+        Request body containing chat_ids (1-100 IDs)
+    db : ChatDatabase
+        Database instance (injected via dependency)
+    """
+    chats = db.get_chats_bulk(body.chat_ids)
+
+    return BulkChatsResponse(
+        chats=[ChatDetail(**chat) for chat in chats],
+        requested=len(body.chat_ids),
+        found=len(chats),
     )
 
 

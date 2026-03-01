@@ -257,6 +257,28 @@ export async function fetchChat(id: number): Promise<ChatDetail> {
   return res.json();
 }
 
+export interface BulkChatsResponse {
+  chats: ChatDetail[];
+  requested: number;
+  found: number;
+}
+
+/**
+ * Fetch multiple chats by ID in a single request.
+ * Returns full chat details with messages for each ID.
+ */
+export async function fetchChatsBulk(chatIds: number[]): Promise<BulkChatsResponse> {
+  const res = await fetchWithRetry(`${API_BASE}/api/chats/bulk`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_ids: chatIds }),
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to fetch chats in bulk: ${res.statusText}`);
+  }
+  return res.json();
+}
+
 /**
  * Full-text search across chats.
  */
