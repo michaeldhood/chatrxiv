@@ -1998,12 +1998,39 @@ class ChatAggregator:
                 text = f"[Thinking]\n{thinking}\n\n{text}" if text else f"[Thinking]\n{thinking}"
 
             # Extract tool calls if present
-            tool_calls = msg_data.get("tool_calls")
+            tool_calls = msg_data.get("tool_calls") or []
+            tool_results = msg_data.get("tool_results") or []
+            if not tool_results:
+                # Backward compatibility: older records may only have raw content_blocks
+                content_blocks = msg_data.get("content_blocks")
+                if isinstance(content_blocks, list):
+                    for block in content_blocks:
+                        if isinstance(block, dict) and block.get("type") == "tool_result":
+                            tool_results.append(
+                                {
+                                    "tool_use_id": block.get("tool_use_id"),
+                                    "content": block.get("content"),
+                                    "is_error": bool(block.get("is_error", False)),
+                                }
+                            )
             if tool_calls:
                 tool_summary = []
                 for tc in tool_calls:
                     tool_name = tc.get("name", "unknown")
-                    tool_summary.append(f"[Tool: {tool_name}]")
+                    tool_input = tc.get("input", {}) if isinstance(tc, dict) else {}
+                    command = (
+                        tool_input.get("command")
+                        or tool_input.get("cmd")
+                        or tool_input.get("script")
+                    ) if isinstance(tool_input, dict) else None
+                    is_terminal = isinstance(tool_name, str) and any(
+                        kw in tool_name.lower()
+                        for kw in ["bash", "shell", "terminal", "command", "exec", "run"]
+                    )
+                    if command and is_terminal:
+                        tool_summary.append(f"[Tool: {tool_name}] {command}")
+                    else:
+                        tool_summary.append(f"[Tool: {tool_name}]")
                 if tool_summary:
                     tool_text = "\n".join(tool_summary)
                     text = f"{text}\n\n{tool_text}" if text else tool_text
@@ -2022,7 +2049,7 @@ class ChatAggregator:
             # Classify message type
             if msg_data.get("thinking"):
                 message_type = MessageType.THINKING
-            elif msg_data.get("tool_calls"):
+            elif tool_calls or tool_results:
                 message_type = MessageType.TOOL_CALL
             elif text:
                 message_type = MessageType.RESPONSE
