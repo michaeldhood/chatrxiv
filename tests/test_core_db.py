@@ -123,3 +123,49 @@ def test_list_chats(temp_db):
     chats = temp_db.list_chats(limit=10)
     assert len(chats) == 5
 
+
+def test_get_chats_bulk(temp_db):
+    """Test batch-fetching multiple chats with messages."""
+    workspace = Workspace(workspace_hash="test123")
+    workspace_id = temp_db.upsert_workspace(workspace)
+
+    chat_ids = []
+    for i in range(3):
+        chat = Chat(
+            cursor_composer_id=f"bulk-{i}",
+            workspace_id=workspace_id,
+            title=f"Bulk Chat {i}",
+            messages=[
+                Message(role=MessageRole.USER, text=f"User message {i}"),
+                Message(role=MessageRole.ASSISTANT, text=f"Response {i}"),
+            ],
+            relevant_files=[f"/path/file_{i}.py"],
+        )
+        chat_ids.append(temp_db.upsert_chat(chat))
+
+    # Fetch all 3 in bulk
+    results = temp_db.get_chats_bulk(chat_ids)
+    assert len(results) == 3
+
+    for idx, chat_data in enumerate(results):
+        assert chat_data["id"] == chat_ids[idx]
+        assert chat_data["title"] == f"Bulk Chat {idx}"
+        assert len(chat_data["messages"]) == 2
+        assert chat_data["messages"][0]["text"] == f"User message {idx}"
+        assert len(chat_data["files"]) == 1
+
+    # Fetch subset
+    results = temp_db.get_chats_bulk([chat_ids[0], chat_ids[2]])
+    assert len(results) == 2
+    assert results[0]["id"] == chat_ids[0]
+    assert results[1]["id"] == chat_ids[2]
+
+    # Fetch with non-existent IDs (should skip missing)
+    results = temp_db.get_chats_bulk([chat_ids[0], 99999])
+    assert len(results) == 1
+    assert results[0]["id"] == chat_ids[0]
+
+    # Empty input
+    results = temp_db.get_chats_bulk([])
+    assert len(results) == 0
+
