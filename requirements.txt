@@ -9,3 +9,4 @@ watchdog>=3.0.0  # Optional: for file system watching (falls back to polling if 
 click>=8.0.0  # Modern CLI framework for refactored CLI
 anthropic>=0.34.0  # Claude API for chat summarization
 matplotlib>=3.5.0  # For visualization
+mcp[cli]>=1.0.0  # Model Context Protocol server for LLM access
