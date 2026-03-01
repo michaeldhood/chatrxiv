@@ -7,6 +7,15 @@ interface ToolResultProps {
   result: ToolResult;
 }
 
+type TopFileResult = {
+  uri?: string;
+  file?: string;
+  path?: string;
+  matchCount?: number;
+  match_count?: number;
+  count?: number;
+};
+
 /**
  * Component for displaying tool execution results.
  * 
@@ -116,7 +125,7 @@ export function ToolResult({ result }: ToolResultProps) {
               <div>
                 <p className="text-xs font-semibold mb-1 text-muted-foreground">Top files:</p>
                 <ul className="space-y-1">
-                  {result.top_files.map((file: any, idx: number) => {
+                  {result.top_files.map((file: TopFileResult, idx: number) => {
                     const uri = file?.uri || file?.file || file?.path || 'Unknown file';
                     const matchCount = file?.matchCount || file?.match_count || file?.count || 0;
                     return (
