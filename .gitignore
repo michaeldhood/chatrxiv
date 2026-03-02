@@ -1,4 +1,5 @@
-.cursor
+.cursor/*
+!.cursor/environment.json
 .venv
 .env
 
