@@ -252,6 +252,132 @@ class ChatRepository(BaseRepository):
 
         return chat_data
 
+    def get_bulk(self, chat_ids: List[int]) -> List[Dict[str, Any]]:
+        """
+        Get multiple chats with their messages in batch.
+
+        Fetches all requested chats in 2 queries (chats + messages) instead of
+        N individual fetches. Returns results in the same order as the input IDs.
+
+        Parameters
+        ----------
+        chat_ids : List[int]
+            Chat IDs to fetch
+
+        Returns
+        -------
+        List[Dict[str, Any]]
+            List of chat dicts with messages (only found chats included)
+        """
+        if not chat_ids:
+            return []
+
+        cursor = self.cursor()
+        placeholders = ",".join(["?"] * len(chat_ids))
+
+        # Batch fetch chat metadata
+        cursor.execute(
+            f"""
+            SELECT c.id, c.cursor_composer_id, c.workspace_id, c.title, c.mode,
+                   c.created_at, c.last_updated_at, c.source, c.messages_count,
+                   c.summary, c.model, c.estimated_cost, c.thinking_count,
+                   w.workspace_hash, w.resolved_path
+            FROM chats c
+            LEFT JOIN workspaces w ON c.workspace_id = w.id
+            WHERE c.id IN ({placeholders})
+        """,
+            chat_ids,
+        )
+
+        chats_by_id = {}
+        for row in cursor.fetchall():
+            chat_data = {
+                "id": row[0],
+                "composer_id": row[1],
+                "workspace_id": row[2],
+                "title": row[3],
+                "mode": row[4],
+                "created_at": row[5],
+                "last_updated_at": row[6],
+                "source": row[7],
+                "messages_count": row[8] if len(row) > 8 else 0,
+                "summary": row[9] if len(row) > 9 else None,
+                "model": row[10] if len(row) > 10 else None,
+                "estimated_cost": row[11] if len(row) > 11 else None,
+                "thinking_count": row[12] if len(row) > 12 else 0,
+                "workspace_hash": row[13] if len(row) > 13 else None,
+                "workspace_path": row[14] if len(row) > 14 else None,
+                "messages": [],
+                "files": [],
+                "tags": [],
+            }
+            chats_by_id[row[0]] = chat_data
+
+        if not chats_by_id:
+            return []
+
+        found_ids = list(chats_by_id.keys())
+        found_placeholders = ",".join(["?"] * len(found_ids))
+
+        # Batch fetch messages
+        cursor.execute(
+            f"""
+            SELECT chat_id, role, text, rich_text, created_at,
+                   cursor_bubble_id, message_type, raw_json
+            FROM messages
+            WHERE chat_id IN ({found_placeholders})
+            ORDER BY chat_id, created_at ASC
+        """,
+            found_ids,
+        )
+
+        for msg_row in cursor.fetchall():
+            chat_id = msg_row[0]
+            raw_json_data = None
+            if len(msg_row) > 7 and msg_row[7]:
+                try:
+                    raw_json_data = json.loads(msg_row[7])
+                except (json.JSONDecodeError, TypeError):
+                    raw_json_data = None
+
+            chats_by_id[chat_id]["messages"].append(
+                {
+                    "role": msg_row[1],
+                    "text": msg_row[2],
+                    "rich_text": msg_row[3],
+                    "created_at": msg_row[4],
+                    "bubble_id": msg_row[5],
+                    "message_type": msg_row[6] if len(msg_row) > 6 else "response",
+                    "raw_json": raw_json_data,
+                }
+            )
+
+        # Batch fetch files
+        cursor.execute(
+            f"""
+            SELECT chat_id, path FROM chat_files
+            WHERE chat_id IN ({found_placeholders})
+        """,
+            found_ids,
+        )
+        for row in cursor.fetchall():
+            chats_by_id[row[0]]["files"].append(row[1])
+
+        # Batch fetch tags
+        cursor.execute(
+            f"""
+            SELECT chat_id, tag FROM tags
+            WHERE chat_id IN ({found_placeholders})
+            ORDER BY chat_id, tag
+        """,
+            found_ids,
+        )
+        for row in cursor.fetchall():
+            chats_by_id[row[0]]["tags"].append(row[1])
+
+        # Return in the same order as input, skipping IDs not found
+        return [chats_by_id[cid] for cid in chat_ids if cid in chats_by_id]
+
     def get_by_composer_id(self, composer_id: str) -> Optional[Dict[str, Any]]:
         """
         Get a chat by its Cursor composer ID.
