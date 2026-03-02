@@ -7,6 +7,15 @@ interface ToolResultProps {
   result: ToolResult;
 }
 
+type TopFileResult = {
+  uri?: string;
+  file?: string;
+  path?: string;
+  matchCount?: number;
+  match_count?: number;
+  count?: number;
+};
+
 /**
  * Component for displaying tool execution results.
  * 
@@ -59,13 +68,13 @@ export function ToolResult({ result }: ToolResultProps) {
             <span className="text-xs font-semibold text-muted-foreground uppercase">Terminal Output</span>
             {getStatusBadge()}
           </div>
-          <pre className="bg-[#0d1117] border border-border rounded-lg p-4 overflow-x-auto text-sm font-mono text-foreground whitespace-pre-wrap">
+          <pre className="bg-accent-green/10 border border-accent-green/30 rounded-lg p-4 overflow-x-auto text-sm font-mono text-foreground whitespace-pre-wrap">
             {displayText}
           </pre>
           {isTruncated && (
             <button
               onClick={() => setShowFullOutput(!showFullOutput)}
-              className="text-xs text-accent-purple hover:text-accent-purple/80"
+              className="text-xs text-accent-green hover:text-accent-green/80"
             >
               {showFullOutput ? 'Show less' : `Show full output (${result.output.length} chars)`}
             </button>
@@ -116,7 +125,7 @@ export function ToolResult({ result }: ToolResultProps) {
               <div>
                 <p className="text-xs font-semibold mb-1 text-muted-foreground">Top files:</p>
                 <ul className="space-y-1">
-                  {result.top_files.map((file: any, idx: number) => {
+                  {result.top_files.map((file: TopFileResult, idx: number) => {
                     const uri = file?.uri || file?.file || file?.path || 'Unknown file';
                     const matchCount = file?.matchCount || file?.match_count || file?.count || 0;
                     return (

@@ -213,6 +213,8 @@ export default function ChatDetailPage() {
             counts[type as keyof typeof counts]++;
           }
         });
+      } else if (item.type === 'terminal_command') {
+        counts.terminal++;
       }
     });
     
@@ -247,8 +249,8 @@ export default function ChatDetailPage() {
       // Always show plan content
       return true;
     } else if (item.type === 'terminal_command') {
-      // Always show terminal commands
-      return true;
+      // Respect terminal visibility toggle for standalone terminal blocks
+      return filterState.terminal;
     }
     return true;
   };

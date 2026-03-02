@@ -68,7 +68,7 @@ export function TerminalCommand({ terminalCommand }: TerminalCommandProps) {
         {/* Command */}
         <div className="mb-4">
           <div className="text-xs font-semibold text-muted-foreground uppercase mb-2">Command</div>
-          <pre className="bg-[#0d1117] border border-border rounded-lg p-4 overflow-x-auto text-sm font-mono text-foreground whitespace-pre-wrap">
+          <pre className="bg-accent-green/10 border border-accent-green/30 rounded-lg p-4 overflow-x-auto text-sm font-mono text-foreground whitespace-pre-wrap">
             {terminalCommand.command}
           </pre>
         </div>
@@ -87,7 +87,7 @@ export function TerminalCommand({ terminalCommand }: TerminalCommandProps) {
                 </button>
               )}
             </div>
-            <pre className="bg-[#0d1117] border border-border rounded-lg p-4 overflow-x-auto text-sm font-mono text-foreground whitespace-pre-wrap">
+            <pre className="bg-accent-green/10 border border-accent-green/30 rounded-lg p-4 overflow-x-auto text-sm font-mono text-foreground whitespace-pre-wrap">
               {displayOutput}
             </pre>
           </div>

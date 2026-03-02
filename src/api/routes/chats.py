@@ -27,6 +27,124 @@ from src.services.summarizer import ChatSummarizer
 router = APIRouter()
 
 
+TERMINAL_TOOL_KEYWORDS = ("shell", "terminal", "run", "command", "exec", "bash")
+PLAN_TOOL_KEYWORDS = ("todo", "plan", "task")
+FILE_WRITE_TOOL_KEYWORDS = ("write", "strreplace", "edit", "create", "save", "editnotebook")
+FILE_READ_TOOL_KEYWORDS = ("read", "grep", "glob", "search", "find", "ls", "list")
+
+
+def _ensure_dict(value: Any) -> Dict[str, Any]:
+    """Best-effort conversion of JSON-like payloads to dict."""
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, dict) else {}
+        except (json.JSONDecodeError, TypeError):
+            return {}
+    return {}
+
+
+def _normalize_tool_calls(raw_json: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    Normalize tool-call arrays across Cursor and Claude Code formats.
+
+    Supported keys:
+    - Cursor: toolCalls / toolCall
+    - Claude Code: tool_calls
+    """
+    candidates = (
+        raw_json.get("toolCalls")
+        or raw_json.get("toolCall")
+        or raw_json.get("tool_calls")
+        or []
+    )
+    if isinstance(candidates, dict):
+        candidates = [candidates]
+    if not isinstance(candidates, list):
+        return []
+    return [tc for tc in candidates if isinstance(tc, dict)]
+
+
+def _extract_tool_params(tool_call: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract params/arguments/input payload from a tool call dict."""
+    params = (
+        tool_call.get("parameters")
+        or tool_call.get("arguments")
+        or tool_call.get("params")
+        or tool_call.get("input")
+        or {}
+    )
+    if isinstance(params, str):
+        try:
+            params = json.loads(params)
+        except (json.JSONDecodeError, TypeError):
+            params = {}
+    return params if isinstance(params, dict) else {}
+
+
+def _extract_command_from_params(params: Dict[str, Any]) -> str:
+    """Extract terminal command string from a tool parameter payload."""
+    if not isinstance(params, dict):
+        return ""
+    command = (
+        params.get("command")
+        or params.get("cmd")
+        or params.get("script")
+        or ""
+    )
+    return command if isinstance(command, str) else str(command)
+
+
+def _is_terminal_tool_name(name: str) -> bool:
+    """Heuristic terminal tool-name check used across sources."""
+    normalized = (name or "").lower()
+    return any(kw in normalized for kw in TERMINAL_TOOL_KEYWORDS)
+
+
+def _extract_tool_result_text(content: Any) -> str:
+    """Normalize tool_result content (string/list/dict) to plain text."""
+    if isinstance(content, str):
+        return content
+
+    if isinstance(content, dict):
+        text = content.get("text")
+        if isinstance(text, str):
+            return text
+        return json.dumps(content, ensure_ascii=False)
+
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict):
+                text = item.get("text")
+                if isinstance(text, str):
+                    parts.append(text)
+                elif item:
+                    parts.append(json.dumps(item, ensure_ascii=False))
+            elif item is not None:
+                parts.append(str(item))
+        return "\n".join(p for p in parts if p)
+
+    return str(content) if content is not None else ""
+
+
+def extract_file_paths_from_tool_calls(raw_json: Dict[str, Any]) -> List[str]:
+    """Extract likely file paths referenced by tool calls across sources."""
+    raw_json = _ensure_dict(raw_json)
+    paths: List[str] = []
+    for tc in _normalize_tool_calls(raw_json):
+        params = _extract_tool_params(tc)
+        for key in ("path", "file", "target_notebook", "uri"):
+            value = params.get(key)
+            if isinstance(value, str) and value:
+                paths.append(value)
+    return paths
+
+
 def classify_tool_call(msg: Dict[str, Any]) -> Dict[str, str]:
     """
     Classify a tool call by its type based on raw_json content.
@@ -46,12 +164,8 @@ def classify_tool_call(msg: Dict[str, Any]) -> Dict[str, str]:
     Dict[str, str]
         Classification with tool_type, tool_name, and tool_description
     """
-    raw_json = msg.get("raw_json") or {}
-
-    # Try to extract tool information from various possible fields
-    tool_calls = raw_json.get("toolCalls") or raw_json.get("toolCall") or []
-    if isinstance(tool_calls, dict):
-        tool_calls = [tool_calls]
+    raw_json = _ensure_dict(msg.get("raw_json") or {})
+    tool_calls = _normalize_tool_calls(raw_json)
 
     tool_former_result = raw_json.get("toolFormerResult") or {}
     code_block = raw_json.get("codeBlock") or {}
@@ -63,60 +177,50 @@ def classify_tool_call(msg: Dict[str, Any]) -> Dict[str, str]:
 
     # Check toolCalls array for tool names
     for tc in tool_calls:
-        name = tc.get("name", "").lower() if isinstance(tc, dict) else str(tc).lower()
+        name = (tc.get("name") or "").lower()
+        params = _extract_tool_params(tc)
 
         # Plan/Todo tools (check first - "todowrite" contains "write" so must be checked before write)
-        if any(kw in name for kw in ["todo", "plan", "task"]):
+        if any(kw in name for kw in PLAN_TOOL_KEYWORDS):
             tool_type = "plan"
             tool_name = "Plan/Todo"
             break
 
         # Terminal/Shell tools
-        if any(
-            kw in name for kw in ["shell", "terminal", "run", "command", "exec", "bash"]
-        ):
+        if _is_terminal_tool_name(name):
             tool_type = "terminal"
             tool_name = "Terminal Command"
-            if isinstance(tc, dict):
-                params = tc.get("parameters") or tc.get("arguments") or {}
-                if isinstance(params, dict):
-                    cmd = params.get("command", "")
-                    if cmd:
-                        tool_description = cmd[:100] + ("..." if len(cmd) > 100 else "")
+            cmd = _extract_command_from_params(params)
+            if cmd:
+                tool_description = cmd[:100] + ("..." if len(cmd) > 100 else "")
             break
 
         # File write tools
-        if any(
-            kw in name
-            for kw in ["write", "strreplace", "edit", "create", "save", "editnotebook"]
-        ):
+        if any(kw in name for kw in FILE_WRITE_TOOL_KEYWORDS):
             tool_type = "file-write"
             tool_name = "File Write"
-            if isinstance(tc, dict):
-                params = tc.get("parameters") or tc.get("arguments") or {}
-                if isinstance(params, dict):
-                    path = params.get("path", "") or params.get("file", "")
-                    if path:
-                        tool_description = path
+            path = (
+                params.get("path", "")
+                or params.get("file", "")
+                or params.get("target_notebook", "")
+                or params.get("uri", "")
+            )
+            if isinstance(path, str) and path:
+                tool_description = path
             break
 
         # File read tools
-        if any(
-            kw in name
-            for kw in ["read", "grep", "glob", "search", "find", "ls", "list"]
-        ):
+        if any(kw in name for kw in FILE_READ_TOOL_KEYWORDS):
             tool_type = "file-read"
             tool_name = "File Read"
-            if isinstance(tc, dict):
-                params = tc.get("parameters") or tc.get("arguments") or {}
-                if isinstance(params, dict):
-                    path = (
-                        params.get("path", "")
-                        or params.get("pattern", "")
-                        or params.get("target_directory", "")
-                    )
-                    if path:
-                        tool_description = path
+            path = (
+                params.get("path", "")
+                or params.get("pattern", "")
+                or params.get("target_directory", "")
+                or params.get("file", "")
+            )
+            if isinstance(path, str) and path:
+                tool_description = path
             break
 
     # Check toolFormerResult for additional context
@@ -202,47 +306,10 @@ def extract_plan_content(raw_json: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     }
 
 
-def extract_terminal_command(
+def _extract_cursor_terminal_command(
     raw_json: Dict[str, Any], created_at: Optional[str] = None
 ) -> Optional[Dict[str, Any]]:
-    """
-    Extract terminal command and output from run_terminal_cmd tool call bubble.
-
-    Parameters
-    ----
-    raw_json : Dict[str, Any]
-        Raw JSON data from message bubble
-    created_at : str, optional
-        Timestamp when the command was executed
-
-    Returns
-    ----
-    Optional[Dict[str, Any]]
-        Terminal command dict with command, output, status, created_at
-        or None if not a run_terminal_cmd tool call
-    """
-    if not raw_json:
-        logger.debug("extract_terminal_command: raw_json is empty or None")
-        return None
-
-    # Handle case where raw_json might be a JSON string (defensive programming)
-    if isinstance(raw_json, str):
-        try:
-            raw_json = json.loads(raw_json)
-        except (json.JSONDecodeError, TypeError):
-            logger.debug("extract_terminal_command: failed to parse raw_json as JSON string")
-            return None
-
-    if not isinstance(raw_json, dict):
-        logger.debug(f"extract_terminal_command: raw_json is not a dict, type={type(raw_json)}")
-        return None
-
-    # Log raw_json structure for debugging
-    raw_json_keys = list(raw_json.keys())
-    logger.debug(
-        f"extract_terminal_command: raw_json type={type(raw_json)}, keys={raw_json_keys}"
-    )
-
+    """Extract terminal command payload from Cursor run_terminal_cmd bubbles."""
     # Try multiple possible key names for toolFormerData (case variations, etc.)
     tool_former = (
         raw_json.get("toolFormerData")
@@ -250,89 +317,172 @@ def extract_terminal_command(
         or raw_json.get("toolFormer")
         or {}
     )
-    
-    # If tool_former is a string, try to parse it
-    if isinstance(tool_former, str):
-        try:
-            tool_former = json.loads(tool_former)
-        except (json.JSONDecodeError, TypeError):
-            tool_former = {}
-    
-    tool_name = tool_former.get("name") if isinstance(tool_former, dict) else None
-    logger.debug(
-        f"extract_terminal_command: tool_former exists={bool(tool_former)}, "
-        f"tool_former type={type(tool_former)}, name={tool_name}"
-    )
-    
-    if not isinstance(tool_former, dict) or tool_former.get("name") != "run_terminal_cmd":
-        if tool_former:
-            logger.debug(
-                f"extract_terminal_command: tool name mismatch - expected 'run_terminal_cmd', "
-                f"got '{tool_name}'"
-            )
+    tool_former = _ensure_dict(tool_former)
+
+    if not tool_former or tool_former.get("name") != "run_terminal_cmd":
         return None
 
     # Parse rawArgs or params to get the command
-    raw_args = tool_former.get("rawArgs", "{}")
-    if isinstance(raw_args, str):
-        try:
-            raw_args = json.loads(raw_args)
-        except (json.JSONDecodeError, TypeError):
-            raw_args = {}
+    raw_args = _ensure_dict(tool_former.get("rawArgs", {}))
+    params_dict = _ensure_dict(tool_former.get("params", {}))
 
-    # Fallback to params if rawArgs parsing failed
-    params_dict = {}
-    if not raw_args or "command" not in raw_args:
-        params = tool_former.get("params", "{}")
-        if isinstance(params, str):
-            try:
-                params_dict = json.loads(params)
-            except (json.JSONDecodeError, TypeError):
-                params_dict = {}
-        else:
-            params_dict = params or {}
-
-        # Extract command from params
-        command = params_dict.get("command", "")
-        if not command and raw_args:
-            command = raw_args.get("command", "")
-    else:
-        command = raw_args.get("command", "")
+    command = _extract_command_from_params(raw_args) or _extract_command_from_params(params_dict)
 
     # Parse result to get output
-    result_str = tool_former.get("result", "{}")
-    if isinstance(result_str, str):
-        try:
-            result = json.loads(result_str)
-        except (json.JSONDecodeError, TypeError):
-            result = {}
-    else:
-        result = result_str or {}
-
+    result = _ensure_dict(tool_former.get("result", {}))
     output = result.get("output", "")
     status = tool_former.get("status")
 
-    # Only return terminal command if we have a command string
     if not command or not command.strip():
-        raw_args_keys = list(raw_args.keys()) if isinstance(raw_args, dict) else "N/A"
-        params_keys = list(params_dict.keys()) if isinstance(params_dict, dict) else "N/A"
-        logger.debug(
-            f"extract_terminal_command: no command found in rawArgs or params, "
-            f"rawArgs keys={raw_args_keys}, params keys={params_keys}"
-        )
         return None
-
-    logger.debug(
-        f"extract_terminal_command: extracted command='{command[:50]}...' "
-        f"(len={len(command)}), output_len={len(output)}, status={status}"
-    )
 
     return {
         "command": command,
-        "output": output,
+        "output": output if isinstance(output, str) else str(output),
         "status": status,
         "created_at": created_at,
+        "tool_use_id": None,
     }
+
+
+def extract_terminal_commands(
+    raw_json: Dict[str, Any], created_at: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    """
+    Extract terminal commands across Cursor and Claude Code formats.
+
+    Returns a list because Claude Code assistant messages may include multiple tool calls.
+    """
+    raw_json = _ensure_dict(raw_json)
+    if not raw_json:
+        return []
+
+    commands: List[Dict[str, Any]] = []
+
+    # Cursor format (toolFormerData/run_terminal_cmd)
+    cursor_cmd = _extract_cursor_terminal_command(raw_json, created_at=created_at)
+    if cursor_cmd:
+        commands.append(cursor_cmd)
+
+    # Claude Code format (tool_calls with name/input)
+    for tc in _normalize_tool_calls(raw_json):
+        name = tc.get("name", "")
+        if not _is_terminal_tool_name(name):
+            continue
+
+        params = _extract_tool_params(tc)
+        command = _extract_command_from_params(params)
+        if not command.strip():
+            continue
+
+        commands.append(
+            {
+                "command": command,
+                "output": "",
+                "status": tc.get("status"),
+                "created_at": created_at,
+                "tool_use_id": tc.get("id") or tc.get("tool_use_id"),
+            }
+        )
+
+    # Deduplicate by (tool_use_id, command)
+    deduped: List[Dict[str, Any]] = []
+    seen = set()
+    for cmd in commands:
+        key = (cmd.get("tool_use_id"), cmd.get("command"))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(cmd)
+
+    return deduped
+
+
+def extract_terminal_command(
+    raw_json: Dict[str, Any], created_at: Optional[str] = None
+) -> Optional[Dict[str, Any]]:
+    """
+    Backward-compatible single-command wrapper.
+    """
+    commands = extract_terminal_commands(raw_json, created_at=created_at)
+    return commands[0] if commands else None
+
+
+def extract_terminal_result_blocks(raw_json: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    Extract terminal outputs from Claude Code tool_result blocks.
+    """
+    raw_json = _ensure_dict(raw_json)
+    if not raw_json:
+        return []
+
+    tool_results = raw_json.get("tool_results") or []
+    if not isinstance(tool_results, list):
+        tool_results = []
+
+    # Backward compatibility: parse from content_blocks if tool_results not materialized.
+    if not tool_results:
+        content_blocks = raw_json.get("content_blocks") or []
+        if isinstance(content_blocks, list):
+            for block in content_blocks:
+                if isinstance(block, dict) and block.get("type") == "tool_result":
+                    tool_results.append(
+                        {
+                            "tool_use_id": block.get("tool_use_id"),
+                            "content": block.get("content"),
+                            "is_error": bool(block.get("is_error", False)),
+                        }
+                    )
+
+    results: List[Dict[str, Any]] = []
+    for result in tool_results:
+        if not isinstance(result, dict):
+            continue
+        output = _extract_tool_result_text(result.get("content", ""))
+        if not output.strip():
+            continue
+        status = "error" if result.get("is_error") else "completed"
+        results.append(
+            {
+                "tool_use_id": result.get("tool_use_id"),
+                "output": output,
+                "status": status,
+            }
+        )
+
+    return results
+
+
+def is_terminal_only_tool_message(raw_json: Dict[str, Any]) -> bool:
+    """
+    Check whether a tool_call message should render only as terminal command(s).
+    """
+    raw_json = _ensure_dict(raw_json)
+    if not raw_json:
+        return False
+
+    # Cursor run_terminal_cmd
+    cursor_tool_former = _ensure_dict(
+        raw_json.get("toolFormerData")
+        or raw_json.get("tool_former_data")
+        or raw_json.get("toolFormer")
+        or {}
+    )
+    if cursor_tool_former.get("name") == "run_terminal_cmd":
+        return True
+
+    # Claude Code assistant tool calls
+    tool_calls = _normalize_tool_calls(raw_json)
+    if tool_calls:
+        names = [(tc.get("name") or "") for tc in tool_calls]
+        if names and all(_is_terminal_tool_name(name) for name in names):
+            return True
+
+    # Claude Code tool result blocks (paired output for terminal calls)
+    if extract_terminal_result_blocks(raw_json):
+        return True
+
+    return False
 
 
 def extract_tool_result(raw_json: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -508,6 +658,7 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
     tool_call_group_index = -1  # Track index for inserting plan indicators
     pending_plan_content = None  # Track plan content to insert after tool call group
     pending_terminal_commands = []  # Track terminal commands to insert after tool call group
+    pending_terminal_by_tool_use_id = {}  # Claude Code tool_use_id -> terminal command
 
     for msg in chat.get("messages", []):
         msg_type = msg.get("message_type", "response")
@@ -525,41 +676,76 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
             msg["tool_description"] = classification["tool_description"]
 
             # Extract plan content if this is a create_plan tool call
-            raw_json = msg.get("raw_json") or {}
+            raw_json = _ensure_dict(msg.get("raw_json") or {})
             plan_content = extract_plan_content(raw_json)
             if plan_content:
                 # Store plan content to insert after tool call group
                 pending_plan_content = plan_content
 
-            # Extract terminal command if this is a run_terminal_cmd tool call
+            # Extract terminal commands across source formats
             created_at = msg.get("created_at")
-            terminal_command = extract_terminal_command(raw_json, created_at)
-            if terminal_command:
-                # Store terminal command to insert after tool call group
-                # Don't add to tool_call_group - it will be rendered separately
+            terminal_commands = extract_terminal_commands(raw_json, created_at)
+            terminal_results = extract_terminal_result_blocks(raw_json)
+
+            for terminal_command in terminal_commands:
+                tool_use_id = terminal_command.get("tool_use_id")
+                if tool_use_id:
+                    pending_terminal_by_tool_use_id[tool_use_id] = terminal_command
+                else:
+                    pending_terminal_commands.append(terminal_command)
                 logger.debug(
                     f"get_chat: extracted terminal command '{terminal_command.get('command', '')[:50]}...' "
                     f"for message bubble_id={msg.get('bubble_id')}"
                 )
-                pending_terminal_commands.append(terminal_command)
-                # Skip adding to tool_call_group - terminal commands render as standalone items
-            else:
-                # Log why extraction failed for tool_call messages
-                if msg_type == "tool_call":
-                    tool_former = raw_json.get("toolFormerData", {}) if raw_json else {}
-                    tool_name = tool_former.get("name") if tool_former else None
-                    logger.debug(
-                        f"get_chat: terminal command extraction returned None for "
-                        f"tool_call name={tool_name}, bubble_id={msg.get('bubble_id')}"
+
+            # Pair Claude Code tool_result output with prior terminal tool_use
+            for terminal_result in terminal_results:
+                tool_use_id = terminal_result.get("tool_use_id")
+                if tool_use_id and tool_use_id in pending_terminal_by_tool_use_id:
+                    matched = pending_terminal_by_tool_use_id.pop(tool_use_id)
+                    matched["output"] = terminal_result.get("output", matched.get("output", ""))
+                    matched["status"] = terminal_result.get("status") or matched.get("status")
+                    pending_terminal_commands.append(matched)
+                    continue
+
+                # Fallback for orphaned tool results
+                if terminal_result.get("output"):
+                    pending_terminal_commands.append(
+                        {
+                            "command": "[Terminal output]",
+                            "output": terminal_result.get("output", ""),
+                            "status": terminal_result.get("status"),
+                            "created_at": created_at,
+                            "tool_use_id": tool_use_id,
+                        }
                     )
 
-                # Extract tool result (output, contents, etc.)
-                tool_result = extract_tool_result(raw_json)
-                if tool_result:
-                    msg["tool_result"] = tool_result
+            # Terminal-only tool calls/results should render as standalone terminal blocks
+            if is_terminal_only_tool_message(raw_json):
+                continue
 
-                tool_call_group.append(msg)
+            # Extract tool result (output, contents, etc.)
+            tool_result = extract_tool_result(raw_json)
+            if tool_result:
+                msg["tool_result"] = tool_result
+
+            tool_call_group.append(msg)
         else:
+            # Flush pending terminal commands even if there is no tool_call_group
+            if pending_terminal_by_tool_use_id:
+                pending_terminal_commands.extend(pending_terminal_by_tool_use_id.values())
+                pending_terminal_by_tool_use_id = {}
+            if pending_terminal_commands and not tool_call_group:
+                for terminal_cmd in pending_terminal_commands:
+                    terminal_cmd.pop("tool_use_id", None)
+                    processed_messages.append(
+                        {
+                            "type": "terminal_command",
+                            "terminal_command": terminal_cmd,
+                        }
+                    )
+                pending_terminal_commands = []
+
             # If we have accumulated tool calls, add them as a group
             if tool_call_group:
                 content_types, summary = build_tool_group_summary(tool_call_group)
@@ -583,12 +769,16 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
                     pending_plan_content = None
 
                 # Insert terminal commands right after the tool call group
+                if pending_terminal_by_tool_use_id:
+                    pending_terminal_commands.extend(pending_terminal_by_tool_use_id.values())
+                    pending_terminal_by_tool_use_id = {}
                 if pending_terminal_commands:
                     logger.debug(
                         f"get_chat: inserting {len(pending_terminal_commands)} terminal command(s) "
                         f"after tool call group"
                     )
                 for terminal_cmd in pending_terminal_commands:
+                    terminal_cmd.pop("tool_use_id", None)
                     processed_messages.append(
                         {
                             "type": "terminal_command",
@@ -603,22 +793,11 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
                     # Check tool_description (from classification)
                     tool_desc = tool_msg.get("tool_description", "")
                     # Also check raw_json for actual file path in parameters
-                    raw_json = tool_msg.get("raw_json", {})
-                    tool_calls = (
-                        raw_json.get("toolCalls") or raw_json.get("toolCall") or []
-                    )
-                    if isinstance(tool_calls, dict):
-                        tool_calls = [tool_calls]
+                    raw_json = _ensure_dict(tool_msg.get("raw_json", {}))
 
                     # Extract file paths from tool call parameters
                     file_paths_to_check = [tool_desc] if tool_desc else []
-                    for tc in tool_calls:
-                        if isinstance(tc, dict):
-                            params = tc.get("parameters") or tc.get("arguments") or {}
-                            if isinstance(params, dict):
-                                path = params.get("path", "") or params.get("file", "")
-                                if path:
-                                    file_paths_to_check.append(path)
+                    file_paths_to_check.extend(extract_file_paths_from_tool_calls(raw_json))
 
                     # Check if any path matches a plan file
                     for file_path in file_paths_to_check:
@@ -685,12 +864,16 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
             pending_plan_content = None
 
         # Insert terminal commands right after the final tool call group
+        if pending_terminal_by_tool_use_id:
+            pending_terminal_commands.extend(pending_terminal_by_tool_use_id.values())
+            pending_terminal_by_tool_use_id = {}
         if pending_terminal_commands:
             logger.debug(
                 f"get_chat: inserting {len(pending_terminal_commands)} terminal command(s) "
                 f"after final tool call group"
             )
         for terminal_cmd in pending_terminal_commands:
+            terminal_cmd.pop("tool_use_id", None)
             processed_messages.append(
                 {
                     "type": "terminal_command",
@@ -704,20 +887,11 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
             # Check tool_description (from classification)
             tool_desc = tool_msg.get("tool_description", "")
             # Also check raw_json for actual file path in parameters
-            raw_json = tool_msg.get("raw_json", {})
-            tool_calls = raw_json.get("toolCalls") or raw_json.get("toolCall") or []
-            if isinstance(tool_calls, dict):
-                tool_calls = [tool_calls]
+            raw_json = _ensure_dict(tool_msg.get("raw_json", {}))
 
             # Extract file paths from tool call parameters
             file_paths_to_check = [tool_desc] if tool_desc else []
-            for tc in tool_calls:
-                if isinstance(tc, dict):
-                    params = tc.get("parameters") or tc.get("arguments") or {}
-                    if isinstance(params, dict):
-                        path = params.get("path", "") or params.get("file", "")
-                        if path:
-                            file_paths_to_check.append(path)
+            file_paths_to_check.extend(extract_file_paths_from_tool_calls(raw_json))
 
             # Check if any path matches a plan file
             for file_path in file_paths_to_check:
@@ -744,6 +918,21 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
                             )
                             del plans_by_file_path[plan_file_path]
                             break
+
+    # Terminal-only conversations may not have tool_call_group boundaries
+    if pending_terminal_by_tool_use_id:
+        pending_terminal_commands.extend(pending_terminal_by_tool_use_id.values())
+        pending_terminal_by_tool_use_id = {}
+    if pending_terminal_commands:
+        for terminal_cmd in pending_terminal_commands:
+            terminal_cmd.pop("tool_use_id", None)
+            processed_messages.append(
+                {
+                    "type": "terminal_command",
+                    "terminal_command": terminal_cmd,
+                }
+            )
+        pending_terminal_commands = []
 
     # If any plans weren't matched to tool calls, add indicators after first message as fallback
     if plans_by_file_path and processed_messages:
