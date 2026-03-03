@@ -27,16 +27,15 @@ export default function DatabasePage() {
   const loadChats = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await fetchChats(page, 50, filter || undefined);
-      // Client-side sorting and filtering (simplified - ideally should be server-side)
+      const data = await fetchChats(
+        page,
+        50,
+        filter || undefined,
+        sourceFilter || undefined,
+        modeFilter || undefined
+      );
+      // Client-side sorting only; filtering is server-side for correctness across pagination.
       let filtered = data.chats;
-      
-      if (modeFilter) {
-        filtered = filtered.filter(c => c.mode === modeFilter);
-      }
-      if (sourceFilter) {
-        filtered = filtered.filter(c => c.source === sourceFilter);
-      }
       
       // Sort
       filtered.sort((a, b) => {
@@ -72,9 +71,7 @@ export default function DatabasePage() {
       });
       
       setChats(filtered);
-      // Note: total is for all chats, but we're filtering client-side
-      // Ideally this should be server-side filtered, but for now use filtered length
-      setTotalChats(filtered.length);
+      setTotalChats(data.total);
     } catch (error) {
       console.error('Failed to load chats:', error);
     } finally {
@@ -113,23 +110,40 @@ export default function DatabasePage() {
     updateURL();
   };
   
-  const updateURL = () => {
+  type URLOverrides = Partial<{
+    filter: string | null;
+    mode: string | null;
+    source: string | null;
+    page: number;
+  }>;
+
+  const updateURL = (overrides?: URLOverrides) => {
+    const f = overrides?.filter ?? filter;
+    const m = overrides?.mode ?? modeFilter;
+    const s = overrides?.source ?? sourceFilter;
+    const p = overrides?.page ?? page;
     const params = new URLSearchParams();
-    if (filter) params.set('filter', filter);
-    if (modeFilter) params.set('mode', modeFilter);
-    if (sourceFilter) params.set('source', sourceFilter);
+    if (f) params.set('filter', f);
+    if (m) params.set('mode', m);
+    if (s) params.set('source', s);
     if (sortBy !== 'created_at') params.set('sort', sortBy);
     if (sortOrder !== 'desc') params.set('order', sortOrder);
-    if (page > 1) params.set('page', String(page));
+    if (p > 1) params.set('page', String(p));
     router.push(`/database?${params.toString()}`);
   };
-  
+
   const handleFilterChange = (type: 'filter' | 'mode' | 'source', value: string | null) => {
     if (type === 'filter') setFilter(value);
     else if (type === 'mode') setModeFilter(value);
     else if (type === 'source') setSourceFilter(value);
     setPage(1);
-    setTimeout(updateURL, 0);
+    // Pass new values immediately to avoid stale closure: updateURL runs before
+    // React re-renders, so it would otherwise read the old state.
+    const overrides: URLOverrides = { page: 1 };
+    if (type === 'filter') overrides.filter = value;
+    else if (type === 'mode') overrides.mode = value;
+    else if (type === 'source') overrides.source = value;
+    setTimeout(() => updateURL(overrides), 0);
   };
   
   const getModeBadgeClass = (mode?: string | null) => {
@@ -165,6 +179,7 @@ export default function DatabasePage() {
           <select
             value={filter || ''}
             onChange={(e) => handleFilterChange('filter', e.target.value || null)}
+            aria-label="Filter by empty status"
             className="px-[10px] py-[6px] border border-border rounded-md bg-muted text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring min-w-[120px]"
           >
             <option value="">All</option>
@@ -180,6 +195,7 @@ export default function DatabasePage() {
           <select
             value={modeFilter || ''}
             onChange={(e) => handleFilterChange('mode', e.target.value || null)}
+            aria-label="Filter by mode"
             className="px-[10px] py-[6px] border border-border rounded-md bg-muted text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring min-w-[120px]"
           >
             <option value="">All</option>
@@ -198,6 +214,7 @@ export default function DatabasePage() {
           <select
             value={sourceFilter || ''}
             onChange={(e) => handleFilterChange('source', e.target.value || null)}
+            aria-label="Filter by source"
             className="px-[10px] py-[6px] border border-border rounded-md bg-muted text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring min-w-[120px]"
           >
             <option value="">All</option>
