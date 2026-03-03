@@ -18,6 +18,7 @@ from .repositories.tag import TagRepository
 from .repositories.plan import PlanRepository
 from .repositories.activity import ActivityRepository
 from .repositories.ingestion import IngestionStateRepository
+from .repositories.segment import SegmentRepository
 from .search.fts import FTSManager
 from .search.instant import instant_search
 from .search.filtered import search_filtered, get_tag_facets, get_workspace_facets
@@ -64,6 +65,7 @@ class Database:
         self.plans = PlanRepository(self.conn)
         self.activity = ActivityRepository(self.conn)
         self.ingestion = IngestionStateRepository(self.conn)
+        self.segments = SegmentRepository(self.conn)
 
     def close(self):
         """Close the database connection."""
@@ -279,6 +281,41 @@ class Database:
         """Delegate to IngestionStateRepository.get_chats_updated_since()."""
         return self.ingestion.get_chats_updated_since(timestamp, source)
 
+    # --- Segment / Topic Analysis methods ---
+    def upsert_topic_analysis(
+        self,
+        chat_id: int,
+        report: Dict[str, Any],
+        segments: List[Dict[str, Any]],
+        judgement_rows: Optional[List[Dict[str, Any]]] = None,
+    ) -> None:
+        """Delegate to SegmentRepository.upsert_topic_analysis()."""
+        self.segments.upsert_topic_analysis(chat_id, report, segments, judgement_rows)
+
+    def get_topic_analysis(self, chat_id: int) -> Optional[Dict[str, Any]]:
+        """Delegate to SegmentRepository.get_topic_analysis()."""
+        return self.segments.get_topic_analysis(chat_id)
+
+    def get_chat_segments(self, chat_id: int) -> List[Dict[str, Any]]:
+        """Delegate to SegmentRepository.get_chat_segments()."""
+        return self.segments.get_chat_segments(chat_id)
+
+    def get_message_judgements(self, chat_id: int) -> List[Dict[str, Any]]:
+        """Delegate to SegmentRepository.get_message_judgements()."""
+        return self.segments.get_message_judgements(chat_id)
+
+    def list_chats_needing_topic_analysis(
+        self, incremental: bool = True, limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        """Delegate to SegmentRepository.list_chats_needing_topic_analysis()."""
+        return self.segments.list_chats_needing_topic_analysis(incremental, limit)
+
+    def update_chat_summary(self, chat_id: int, summary: str) -> None:
+        """Update a chat's summary field."""
+        cursor = self.conn.cursor()
+        cursor.execute("UPDATE chats SET summary = ? WHERE id = ?", (summary, chat_id))
+        self.conn.commit()
+
     # --- Search methods ---
     def search_chats(
         self, query: str, limit: int = 50, offset: int = 0
@@ -446,6 +483,7 @@ __all__ = [
     "PlanRepository",
     "ActivityRepository",
     "IngestionStateRepository",
+    "SegmentRepository",
     # Search
     "FTSManager",
     "instant_search",

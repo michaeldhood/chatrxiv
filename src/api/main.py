@@ -14,7 +14,7 @@ from typing import Optional
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.api.routes import activity, chats, health, search, stream
+from src.api.routes import activity, chats, health, search, segments, stream
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +46,26 @@ def _do_ingestion():
             stats["skipped"],
             stats["errors"],
         )
+
+        # Run topic analysis if enabled via environment variable
+        if os.getenv("CHATRXIV_ANALYZE_TOPICS", "false").lower() == "true":
+            try:
+                from src.services.topic_analysis import TopicAnalysisService
+                use_llm = os.getenv("CHATRXIV_TOPIC_LLM", "false").lower() == "true"
+                topic_service = TopicAnalysisService(
+                    db=db,
+                    use_llm=use_llm,
+                    topic_backend="auto",
+                )
+                topic_stats = topic_service.backfill(incremental=True, limit=50)
+                logger.info(
+                    "Topic analysis complete: %d analyzed, %d skipped, %d errors",
+                    topic_stats["analyzed"],
+                    topic_stats["skipped"],
+                    topic_stats["errors"],
+                )
+            except Exception as te:
+                logger.warning("Topic analysis error (non-fatal): %s", te)
     except Exception as e:
         logger.error("Error during automatic ingestion: %s", e)
     finally:
@@ -127,3 +147,4 @@ app.include_router(search.router, prefix="/api", tags=["search"])
 app.include_router(stream.router, prefix="/api", tags=["stream"])
 app.include_router(activity.router, prefix="/api", tags=["activity"])
 app.include_router(health.router, prefix="/api", tags=["health"])
+app.include_router(segments.router, prefix="/api", tags=["segments"])

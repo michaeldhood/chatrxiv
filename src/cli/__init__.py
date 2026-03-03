@@ -114,6 +114,10 @@ from .commands.watch import watch, update_modes
 cli.add_command(watch)
 cli.add_command(update_modes)
 
+# Topic divergence / segment commands
+from .commands.segment import segment
+cli.add_command(segment)
+
 
 def main():
     """

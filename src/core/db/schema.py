@@ -52,6 +52,10 @@ class SchemaManager:
         self._create_chat_plans_table(cursor)
         self._create_cursor_activity_table(cursor)
         self._create_ingestion_state_table(cursor)
+        self._create_chat_topic_analysis_table(cursor)
+        self._create_chat_segments_table(cursor)
+        self._create_chat_message_judgements_table(cursor)
+        self._create_segment_links_table(cursor)
 
         # Apply migrations
         self._migrate_chats_table(cursor)
@@ -214,6 +218,78 @@ class SchemaManager:
             )
         """)
 
+    def _create_chat_topic_analysis_table(self, cursor) -> None:
+        """Create chat_topic_analysis table for per-chat divergence reports."""
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS chat_topic_analysis (
+                chat_id INTEGER PRIMARY KEY,
+                computed_at TEXT,
+                source_last_updated_at TEXT,
+                analysis_version INTEGER DEFAULT 1,
+                overall_score REAL DEFAULT 0.0,
+                embedding_drift_score REAL DEFAULT 0.0,
+                topic_entropy_score REAL DEFAULT 0.0,
+                topic_transition_score REAL DEFAULT 0.0,
+                llm_relevance_score REAL,
+                num_segments INTEGER DEFAULT 0,
+                should_split INTEGER DEFAULT 0,
+                suggested_split_points TEXT,
+                topic_summaries TEXT,
+                raw_json TEXT,
+                FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE
+            )
+        """)
+
+    def _create_chat_segments_table(self, cursor) -> None:
+        """Create chat_segments table for segment records."""
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS chat_segments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                chat_id INTEGER NOT NULL,
+                start_message_idx INTEGER NOT NULL,
+                end_message_idx INTEGER NOT NULL,
+                parent_segment_id INTEGER,
+                topic_label TEXT,
+                summary TEXT,
+                divergence_score REAL DEFAULT 0.0,
+                anchor_embedding TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE,
+                FOREIGN KEY (parent_segment_id) REFERENCES chat_segments(id) ON DELETE SET NULL
+            )
+        """)
+
+    def _create_chat_message_judgements_table(self, cursor) -> None:
+        """Create chat_message_judgements table for LLM per-message classifications."""
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS chat_message_judgements (
+                chat_id INTEGER NOT NULL,
+                message_idx INTEGER NOT NULL,
+                relation TEXT,
+                relevance_score REAL,
+                suggested_segment_break INTEGER DEFAULT 0,
+                reasoning TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (chat_id, message_idx),
+                FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE
+            )
+        """)
+
+    def _create_segment_links_table(self, cursor) -> None:
+        """Create segment_links table for cross-segment relationships."""
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS segment_links (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_segment_id INTEGER NOT NULL,
+                target_segment_id INTEGER NOT NULL,
+                link_type TEXT NOT NULL,
+                similarity REAL,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (source_segment_id) REFERENCES chat_segments(id) ON DELETE CASCADE,
+                FOREIGN KEY (target_segment_id) REFERENCES chat_segments(id) ON DELETE CASCADE
+            )
+        """)
+
     def _migrate_chats_table(self, cursor) -> None:
         """Apply migrations for chats table."""
         cursor.execute("PRAGMA table_info(chats)")
@@ -342,12 +418,23 @@ class SchemaManager:
             ("idx_chat_plans_plan", "chat_plans", "plan_id"),
             ("idx_activity_date", "cursor_activity", "date"),
             ("idx_activity_model", "cursor_activity", "model"),
+            ("idx_topic_analysis_score", "chat_topic_analysis", "overall_score"),
+            ("idx_segments_chat", "chat_segments", "chat_id"),
+            ("idx_judgements_chat", "chat_message_judgements", "chat_id"),
+            ("idx_segment_links_source", "segment_links", "source_segment_id"),
+            ("idx_segment_links_target", "segment_links", "target_segment_id"),
         ]
 
         for idx_name, table, column in indexes:
             cursor.execute(
                 f"CREATE INDEX IF NOT EXISTS {idx_name} ON {table}({column})"
             )
+
+        # Compound indexes
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_segments_range "
+            "ON chat_segments(chat_id, start_message_idx, end_message_idx)"
+        )
 
     def _check_unified_fts_migration(self, cursor) -> None:
         """Check if unified FTS needs to be rebuilt for existing databases."""

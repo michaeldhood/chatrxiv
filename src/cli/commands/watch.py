@@ -43,9 +43,19 @@ from src.core.models import ChatMode
     is_flag=True,
     help='Force use of polling instead of file system events'
 )
+@click.option(
+    '--analyze-topics/--no-analyze-topics',
+    default=False,
+    help='Run topic divergence analysis after each ingestion cycle'
+)
+@click.option(
+    '--topic-llm/--no-topic-llm',
+    default=False,
+    help='Enable LLM judge for topic analysis (requires ANTHROPIC_API_KEY)'
+)
 @db_option
 @click.pass_context
-def watch(ctx, source, poll_interval, debounce, use_polling, db_path):
+def watch(ctx, source, poll_interval, debounce, use_polling, analyze_topics, topic_llm, db_path):
     """
     Watch for changes and automatically ingest (daemon mode).
 
@@ -100,6 +110,24 @@ def watch(ctx, source, poll_interval, debounce, use_polling, db_path):
                         stats = thread_aggregator.ingest_claude_code(incremental=True)
                         click.echo(f"Claude Code auto-ingestion: {stats['ingested']} ingested, "
                                    f"{stats['skipped']} skipped, {stats['errors']} errors")
+                # Run topic analysis if enabled
+                if analyze_topics:
+                    try:
+                        from src.services.topic_analysis import TopicAnalysisService
+                        topic_service = TopicAnalysisService(
+                            db=thread_db,
+                            use_llm=topic_llm,
+                            topic_backend="auto",
+                        )
+                        topic_stats = topic_service.backfill(incremental=True, limit=50)
+                        if topic_stats["analyzed"] > 0:
+                            click.echo(
+                                f"Topic analysis: {topic_stats['analyzed']} analyzed, "
+                                f"{topic_stats['skipped']} skipped, {topic_stats['errors']} errors"
+                            )
+                    except Exception as te:
+                        click.secho(f"Topic analysis error: {te}", fg='yellow', err=True)
+
             except Exception as e:
                 click.secho(f"Error during automatic ingestion: {e}", fg='red', err=True)
             finally:

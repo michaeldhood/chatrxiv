@@ -9,3 +9,6 @@ watchdog>=3.0.0  # Optional: for file system watching (falls back to polling if 
 click>=8.0.0  # Modern CLI framework for refactored CLI
 anthropic>=0.34.0  # Claude API for chat summarization
 matplotlib>=3.5.0  # For visualization
+numpy>=1.24.0  # Topic divergence: embeddings, cosine distance
+scipy>=1.10.0  # Topic divergence: cosine distance computation
+scikit-learn>=1.2.0  # Topic divergence: TF-IDF fallback embedder
