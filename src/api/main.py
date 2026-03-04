@@ -2,7 +2,7 @@
 FastAPI application entry point for chatrxiv API.
 
 Provides REST API endpoints and integrates file watching for automatic
-ingestion of new chats from Cursor.
+ingestion of new chats from Cursor and Claude Code.
 """
 
 import logging
@@ -26,7 +26,7 @@ _ingestion_thread: Optional[threading.Thread] = None
 
 def _do_ingestion():
     """
-    Perform incremental ingestion in background.
+    Perform incremental ingestion for Cursor in background.
 
     Creates a fresh database connection for thread safety.
     """
@@ -41,21 +41,50 @@ def _do_ingestion():
         aggregator = ChatAggregator(db)
         stats = aggregator.ingest_all(incremental=True)
         logger.info(
-            "Auto-ingestion complete: %d ingested, %d skipped, %d errors",
+            "Cursor auto-ingestion complete: %d ingested, %d skipped, %d errors",
             stats["ingested"],
             stats["skipped"],
             stats["errors"],
         )
     except Exception as e:
-        logger.error("Error during automatic ingestion: %s", e)
+        logger.error("Error during Cursor automatic ingestion: %s", e)
+    finally:
+        db.close()
+
+
+def _do_claude_code_ingestion():
+    """
+    Perform incremental ingestion for Claude Code in background.
+
+    Creates a fresh database connection for thread safety.
+    """
+    from src.core.config import get_default_db_path
+    from src.core.db import ChatDatabase
+    from src.services.aggregator import ChatAggregator
+
+    db_path = os.getenv("CHATRXIV_DB_PATH") or str(get_default_db_path())
+    db = ChatDatabase(db_path)
+
+    try:
+        aggregator = ChatAggregator(db)
+        stats = aggregator.ingest_claude_code(incremental=True)
+        logger.info(
+            "Claude Code auto-ingestion complete: %d ingested, %d skipped, %d errors",
+            stats["ingested"],
+            stats["skipped"],
+            stats["errors"],
+        )
+    except Exception as e:
+        logger.error("Error during Claude Code automatic ingestion: %s", e)
     finally:
         db.close()
 
 
 def _background_ingestion():
-    """Run initial ingestion in background thread."""
+    """Run initial ingestion for all sources in background thread."""
     try:
         _do_ingestion()
+        _do_claude_code_ingestion()
     finally:
         _ingestion_complete.set()
         logger.info("Background ingestion complete")
@@ -88,7 +117,11 @@ async def lifespan(app: FastAPI):
         # Start file watcher for subsequent updates
         logger.info("Starting file watcher for automatic updates...")
         _watcher = IngestionWatcher(
-            ingestion_callback=_do_ingestion, debounce_seconds=5.0, poll_interval=30.0
+            ingestion_callback=_do_ingestion,
+            claude_code_callback=_do_claude_code_ingestion,
+            debounce_seconds=5.0,
+            poll_interval=30.0,
+            sources=["cursor", "code"],
         )
         _watcher.start()
         logger.info("Server ready (ingestion running in background)")
