@@ -116,6 +116,10 @@ class Database:
         """Delegate to ChatRepository.get()."""
         return self.chats.get(chat_id)
 
+    def get_chats_bulk(self, chat_ids: List[int]) -> List[Dict[str, Any]]:
+        """Delegate to ChatRepository.get_bulk()."""
+        return self.chats.get_bulk(chat_ids)
+
     def get_chat_by_composer_id(
         self, composer_id: str
     ) -> Optional[Dict[str, Any]]:

@@ -145,6 +145,68 @@ def test_transform_extracts_tool_calls(transformer):
     assert message.message_type == MessageType.TOOL_CALL
 
 
+def test_transform_tool_summary_includes_terminal_command(transformer):
+    """Terminal tool summaries should include command text for readability."""
+    raw_data = {
+        "session_id": "sess-terminal-tools",
+        "summary": "Terminal Tool Summary",
+        "messages": [
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "toolu_1",
+                        "name": "Bash",
+                        "input": {"command": "ls -la"},
+                    }
+                ],
+                "timestamp": "2024-01-15T10:00:00Z",
+                "uuid": "msg-terminal-tool",
+            },
+        ],
+    }
+
+    chat = transformer.transform(raw_data)
+
+    assert chat is not None
+    assert len(chat.messages) == 1
+    message = chat.messages[0]
+    assert message.text == "[Tool: Bash] ls -la"
+    assert message.message_type == MessageType.TOOL_CALL
+
+
+def test_transform_marks_tool_result_messages_as_tool_call(transformer):
+    """Claude Code user tool_result entries should be typed as TOOL_CALL."""
+    raw_data = {
+        "session_id": "sess-tool-result",
+        "summary": "Tool Result Type",
+        "messages": [
+            {
+                "role": "user",
+                "content": "[Tool Result]\nfile-a.py\nfile-b.py",
+                "tool_results": [
+                    {
+                        "tool_use_id": "toolu_123",
+                        "content": "file-a.py\nfile-b.py",
+                        "is_error": False,
+                    }
+                ],
+                "timestamp": "2024-01-15T10:00:00Z",
+                "uuid": "msg-tool-result",
+            },
+        ],
+    }
+
+    chat = transformer.transform(raw_data)
+
+    assert chat is not None
+    assert len(chat.messages) == 1
+    message = chat.messages[0]
+    assert message.role == MessageRole.USER
+    assert message.message_type == MessageType.TOOL_CALL
+
+
 def test_transform_calculates_cost(transformer):
     """Test that estimated_cost is calculated from token usage."""
     raw_data = {

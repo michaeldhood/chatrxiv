@@ -11,6 +11,7 @@ import { TerminalCommand } from '@/components/terminal-command';
 import { ToolResult } from '@/components/tool-result';
 import { Markdown } from '@/components/markdown';
 import { formatDistanceToNow } from 'date-fns';
+import { formatChatAsMarkdown, formatChatAsJsonObject, copyToClipboard } from '@/lib/copy';
 
 export default function ChatDetailPage() {
   const params = useParams();
@@ -121,44 +122,21 @@ export default function ChatDetailPage() {
   
   const copyChatToClipboard = async () => {
     if (!chat) return;
-    
-    // Use text field - rich_text contains raw Lexical JSON
-    const messagesWithText = chat.messages.filter(msg => msg.text);
-    
-    let chatText = '';
-    for (const msg of messagesWithText) {
-      const roleLabel = msg.role === 'user' ? 'User' : 'Assistant';
-      const content = msg.text || '';
-      chatText += `**${roleLabel}**\n\n${content}\n\n---\n\n`;
-    }
-    
-    chatText = chatText.replace(/\n\n---\n\n$/, '\n');
-    
     try {
-      await navigator.clipboard.writeText(chatText);
-      alert(`Copied! (${chatText.length.toLocaleString()} chars)`);
+      const text = formatChatAsMarkdown(chat);
+      const charCount = await copyToClipboard(text);
+      alert(`Copied! (${charCount.toLocaleString()} chars)`);
     } catch (error) {
       console.error('Failed to copy:', error);
       alert('Copy failed');
     }
   };
-  
+
   const copyChatAsJson = async () => {
     if (!chat) return;
-    
-    // Use text field - rich_text contains raw Lexical JSON
-    const messagesWithText = chat.messages.filter(msg => msg.text);
-    
-    const jsonData = {
-      title: chat.title,
-      messages: messagesWithText.map(msg => ({
-        role: msg.role,
-        text: msg.text || '',
-      })),
-    };
-    
     try {
-      await navigator.clipboard.writeText(JSON.stringify(jsonData, null, 2));
+      const jsonStr = JSON.stringify(formatChatAsJsonObject(chat), null, 2);
+      await copyToClipboard(jsonStr);
       alert('Copied as JSON!');
     } catch (error) {
       console.error('Failed to copy:', error);
@@ -213,6 +191,8 @@ export default function ChatDetailPage() {
             counts[type as keyof typeof counts]++;
           }
         });
+      } else if (item.type === 'terminal_command') {
+        counts.terminal++;
       }
     });
     
@@ -247,8 +227,8 @@ export default function ChatDetailPage() {
       // Always show plan content
       return true;
     } else if (item.type === 'terminal_command') {
-      // Always show terminal commands
-      return true;
+      // Respect terminal visibility toggle for standalone terminal blocks
+      return filterState.terminal;
     }
     return true;
   };

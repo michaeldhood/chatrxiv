@@ -39,6 +39,35 @@ class ClaudeCodeTransformer(BaseTransformer):
         """
         return "claude-code"
 
+    @staticmethod
+    def _looks_terminal_tool(tool_name: Optional[str]) -> bool:
+        """Heuristic check for terminal/shell tool names."""
+        if not tool_name:
+            return False
+        name = tool_name.lower()
+        return any(kw in name for kw in ["bash", "shell", "terminal", "command", "exec", "run"])
+
+    @staticmethod
+    def _extract_tool_results_from_blocks(content_blocks: Any) -> list:
+        """Extract tool_result metadata from Claude Code content blocks."""
+        if not isinstance(content_blocks, list):
+            return []
+
+        tool_results = []
+        for block in content_blocks:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") != "tool_result":
+                continue
+            tool_results.append(
+                {
+                    "tool_use_id": block.get("tool_use_id"),
+                    "content": block.get("content"),
+                    "is_error": bool(block.get("is_error", False)),
+                }
+            )
+        return tool_results
+
     def transform(self, raw_data: Dict[str, Any]) -> Optional[Chat]:
         """
         Transform raw Claude Code session data to Chat domain model.
@@ -95,13 +124,26 @@ class ClaudeCodeTransformer(BaseTransformer):
                     f"[Thinking]\n{thinking}\n\n{text}" if text else f"[Thinking]\n{thinking}"
                 )
 
-            # Extract tool calls if present
-            tool_calls = msg_data.get("tool_calls")
+            # Extract tool calls/tool results if present
+            tool_calls = msg_data.get("tool_calls") or []
+            tool_results = msg_data.get("tool_results") or self._extract_tool_results_from_blocks(
+                msg_data.get("content_blocks")
+            )
             if tool_calls:
                 tool_summary = []
                 for tc in tool_calls:
                     tool_name = tc.get("name", "unknown")
-                    tool_summary.append(f"[Tool: {tool_name}]")
+                    tool_input = tc.get("input", {}) if isinstance(tc, dict) else {}
+                    command = (
+                        tool_input.get("command")
+                        or tool_input.get("cmd")
+                        or tool_input.get("script")
+                    ) if isinstance(tool_input, dict) else None
+
+                    if command and self._looks_terminal_tool(tool_name):
+                        tool_summary.append(f"[Tool: {tool_name}] {command}")
+                    else:
+                        tool_summary.append(f"[Tool: {tool_name}]")
                 if tool_summary:
                     tool_text = "\n".join(tool_summary)
                     text = f"{text}\n\n{tool_text}" if text else tool_text
@@ -120,7 +162,7 @@ class ClaudeCodeTransformer(BaseTransformer):
             # Classify message type
             if msg_data.get("thinking"):
                 message_type = MessageType.THINKING
-            elif msg_data.get("tool_calls"):
+            elif tool_calls or tool_results:
                 message_type = MessageType.TOOL_CALL
             elif text:
                 message_type = MessageType.RESPONSE

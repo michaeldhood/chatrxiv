@@ -114,6 +114,10 @@ from .commands.watch import watch, update_modes
 cli.add_command(watch)
 cli.add_command(update_modes)
 
+# MCP server
+from .commands.mcp import mcp_server
+cli.add_command(mcp_server)
+
 
 def main():
     """

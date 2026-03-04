@@ -8,6 +8,7 @@ Claude Code stores conversations locally as JSONL files, organized by project.
 import json
 import logging
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
@@ -245,14 +246,16 @@ class ClaudeCodeReader:
             logger.warning("Failed to read session file %s: %s", session_file, e)
             return result
 
-        # Extract summary
+        # Extract summary + active branch leaf
+        active_leaf_uuid = None
         for entry in entries:
             if isinstance(entry, SummaryEntry):
                 result["summary"] = entry.summary
+                active_leaf_uuid = entry.leafUuid
                 break
 
         # Extract messages and build tree
-        messages = self._flatten_message_tree(entries)
+        messages = self._flatten_message_tree(entries, active_leaf_uuid=active_leaf_uuid)
         result["messages"] = messages
 
         # Extract metadata from first user entry
@@ -268,8 +271,95 @@ class ClaudeCodeReader:
 
         return result
 
+    def _parse_iso_timestamp(
+        self, timestamp_str: Optional[str]
+    ) -> datetime:
+        """
+        Parse ISO timestamp safely for ordering.
+
+        Returns timezone-aware datetime. Invalid/missing timestamps become datetime.min.
+        """
+        if not timestamp_str:
+            return datetime.min.replace(tzinfo=timezone.utc)
+        try:
+            if timestamp_str.endswith("Z"):
+                timestamp_str = timestamp_str[:-1] + "+00:00"
+            parsed = datetime.fromisoformat(timestamp_str)
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed
+        except (ValueError, TypeError, AttributeError):
+            return datetime.min.replace(tzinfo=timezone.utc)
+
+    def _select_fallback_leaf_uuid(
+        self,
+        entry_map: Dict[str, ClaudeCodeEntry],
+        children_map: Dict[Optional[str], List[str]],
+    ) -> Optional[str]:
+        """
+        Select a likely active leaf if summary leafUuid is unavailable.
+
+        Preference:
+        1. Leaf nodes that are not sidechains
+        2. Any leaf nodes
+        3. Any non-sidechain node
+        4. Any node
+        Always choose most recent by timestamp.
+        """
+        leaf_uuids = [uuid for uuid in entry_map.keys() if not children_map.get(uuid)]
+        non_sidechain_leafs = [
+            uuid
+            for uuid in leaf_uuids
+            if not getattr(entry_map[uuid], "isSidechain", False)
+        ]
+
+        if non_sidechain_leafs:
+            candidates = non_sidechain_leafs
+        elif leaf_uuids:
+            candidates = leaf_uuids
+        else:
+            non_sidechain_nodes = [
+                uuid
+                for uuid in entry_map.keys()
+                if not getattr(entry_map[uuid], "isSidechain", False)
+            ]
+            candidates = non_sidechain_nodes or list(entry_map.keys())
+
+        if not candidates:
+            return None
+
+        return max(
+            candidates,
+            key=lambda uuid: self._parse_iso_timestamp(
+                getattr(entry_map[uuid], "timestamp", None)
+            ),
+        )
+
+    def _build_branch_from_leaf(
+        self,
+        leaf_uuid: str,
+        entry_map: Dict[str, ClaudeCodeEntry],
+    ) -> List[ClaudeCodeEntry]:
+        """
+        Walk parent links from leaf to root and return root->leaf branch.
+        """
+        branch: List[ClaudeCodeEntry] = []
+        visited = set()
+        current_uuid: Optional[str] = leaf_uuid
+
+        while current_uuid and current_uuid not in visited:
+            visited.add(current_uuid)
+            entry = entry_map.get(current_uuid)
+            if not entry:
+                break
+            branch.append(entry)
+            current_uuid = entry.parentUuid
+
+        branch.reverse()
+        return branch
+
     def _flatten_message_tree(
-        self, entries: List[ClaudeCodeEntry]
+        self, entries: List[ClaudeCodeEntry], active_leaf_uuid: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Flatten the message tree into a linear list.
@@ -287,56 +377,48 @@ class ClaudeCodeReader:
         List[Dict[str, Any]]
             Linear list of messages in chronological order
         """
-        # Build a mapping from uuid to entry
+        # Build maps for traversal
         entry_map: Dict[str, ClaudeCodeEntry] = {}
         children_map: Dict[Optional[str], List[str]] = {}  # parent_uuid -> [child_uuids]
+        original_order: Dict[str, int] = {}
 
-        for entry in entries:
+        for idx, entry in enumerate(entries):
             if isinstance(entry, (UserEntry, AssistantEntry)):
                 entry_map[entry.uuid] = entry
+                original_order[entry.uuid] = idx
                 parent = entry.parentUuid
                 if parent not in children_map:
                     children_map[parent] = []
                 children_map[parent].append(entry.uuid)
 
-        # Find root nodes (no parent)
-        roots = children_map.get(None, [])
-        if not roots:
-            # No root nodes, fall back to chronological order
-            return self._entries_to_messages(
-                [e for e in entries if isinstance(e, (UserEntry, AssistantEntry))]
-            )
+        if not entry_map:
+            return []
 
-        # Follow the main branch (first child at each level)
-        # This is a simplification - Claude Code's sidechains could be tracked separately
-        messages = []
-        current_uuids = roots
+        # Primary path: follow summary leafUuid (active branch)
+        leaf_uuid = (
+            active_leaf_uuid
+            if active_leaf_uuid and active_leaf_uuid in entry_map
+            else None
+        )
 
-        visited = set()
-        while current_uuids:
-            next_uuids = []
-            for uuid in current_uuids:
-                if uuid in visited:
-                    continue
-                visited.add(uuid)
+        # Fallback if summary leaf is missing/stale
+        if not leaf_uuid:
+            leaf_uuid = self._select_fallback_leaf_uuid(entry_map, children_map)
 
-                entry = entry_map.get(uuid)
-                if entry:
-                    msg = self._entry_to_message(entry)
-                    if msg:
-                        messages.append(msg)
+        if leaf_uuid:
+            branch_entries = self._build_branch_from_leaf(leaf_uuid, entry_map)
+            if branch_entries:
+                return self._entries_to_messages(branch_entries)
 
-                # Get children of this node
-                children = children_map.get(uuid, [])
-                # Filter out sidechains if desired
-                for child_uuid in children:
-                    child_entry = entry_map.get(child_uuid)
-                    if child_entry and not getattr(child_entry, "isSidechain", False):
-                        next_uuids.append(child_uuid)
-
-            current_uuids = next_uuids
-
-        return messages
+        # Last resort: deterministic chronological order
+        chronological_entries = sorted(
+            entry_map.values(),
+            key=lambda entry: (
+                self._parse_iso_timestamp(getattr(entry, "timestamp", None)),
+                original_order.get(entry.uuid, 0),
+            ),
+        )
+        return self._entries_to_messages(chronological_entries)
 
     def _entries_to_messages(
         self, entries: List[ClaudeCodeEntry]
@@ -381,10 +463,12 @@ class ClaudeCodeReader:
             if isinstance(content, str):
                 text_content = content
                 content_blocks = [{"type": "text", "text": content}]
+                tool_results = []
             else:
                 # Extract text from content blocks (may include tool_result)
                 text_parts = []
                 content_blocks = []
+                tool_results = []
                 for block in content:
                     if hasattr(block, "model_dump"):
                         block_dict = block.model_dump()
@@ -395,12 +479,32 @@ class ClaudeCodeReader:
                     if block_dict.get("type") == "tool_result":
                         # Tool results contain nested content
                         tool_content = block_dict.get("content", "")
+                        tool_text_parts = []
                         if isinstance(tool_content, str):
-                            text_parts.append(f"[Tool Result]\n{tool_content}")
+                            if tool_content:
+                                tool_text_parts.append(tool_content)
                         elif isinstance(tool_content, list):
                             for tc in tool_content:
-                                if isinstance(tc, dict) and tc.get("type") == "text":
-                                    text_parts.append(f"[Tool Result]\n{tc.get('text', '')}")
+                                if hasattr(tc, "model_dump"):
+                                    tc = tc.model_dump()
+                                if isinstance(tc, dict):
+                                    if tc.get("type") == "text" and tc.get("text"):
+                                        tool_text_parts.append(tc.get("text", ""))
+                                    elif tc.get("text"):
+                                        tool_text_parts.append(tc.get("text", ""))
+                                elif isinstance(tc, str) and tc:
+                                    tool_text_parts.append(tc)
+
+                        tool_text = "\n".join(t for t in tool_text_parts if t)
+                        tool_results.append(
+                            {
+                                "tool_use_id": block_dict.get("tool_use_id"),
+                                "content": tool_text,
+                                "is_error": bool(block_dict.get("is_error", False)),
+                            }
+                        )
+                        if tool_text:
+                            text_parts.append(f"[Tool Result]\n{tool_text}")
                     elif block_dict.get("type") == "text":
                         text_parts.append(block_dict.get("text", ""))
 
@@ -411,6 +515,7 @@ class ClaudeCodeReader:
                 "role": "user",
                 "content": text_content,
                 "content_blocks": content_blocks,
+                "tool_results": tool_results if tool_results else None,
                 "timestamp": entry.timestamp,
                 "parent_uuid": entry.parentUuid,
             }
