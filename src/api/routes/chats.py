@@ -437,6 +437,8 @@ def get_chats(
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=100),
     filter: Optional[str] = Query(None, alias="filter"),
+    source: Optional[str] = Query(None),
+    mode: Optional[str] = Query(None),
     db: ChatDatabase = Depends(get_db),
 ):
     """
@@ -459,9 +461,17 @@ def get_chats(
     empty_filter = filter  # 'empty', 'non_empty', or None
 
     chats = search_service.list_chats(
-        limit=limit, offset=offset, empty_filter=empty_filter
+        limit=limit,
+        offset=offset,
+        empty_filter=empty_filter,
+        source_filter=source,
+        mode_filter=mode,
     )
-    total = search_service.count_chats(empty_filter=empty_filter)
+    total = search_service.count_chats(
+        empty_filter=empty_filter,
+        source_filter=source,
+        mode_filter=mode,
+    )
 
     return ChatsResponse(
         chats=[ChatSummary(**chat) for chat in chats],

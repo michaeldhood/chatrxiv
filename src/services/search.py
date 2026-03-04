@@ -195,6 +195,8 @@ class ChatSearchService:
         limit: int = 100,
         offset: int = 0,
         empty_filter: Optional[str] = None,
+        source_filter: Optional[str] = None,
+        mode_filter: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
         List chats with optional workspace and empty status filters.
@@ -215,7 +217,14 @@ class ChatSearchService:
         List[Dict[str, Any]]
             List of chats
         """
-        return self.db.list_chats(workspace_id, limit, offset, empty_filter)
+        return self.db.list_chats(
+            workspace_id,
+            limit,
+            offset,
+            empty_filter,
+            source_filter=source_filter,
+            mode_filter=mode_filter,
+        )
 
     def get_chat(self, chat_id: int) -> Optional[Dict[str, Any]]:
         """
@@ -234,7 +243,11 @@ class ChatSearchService:
         return self.db.get_chat(chat_id)
 
     def count_chats(
-        self, workspace_id: Optional[int] = None, empty_filter: Optional[str] = None
+        self,
+        workspace_id: Optional[int] = None,
+        empty_filter: Optional[str] = None,
+        source_filter: Optional[str] = None,
+        mode_filter: Optional[str] = None,
     ) -> int:
         """
         Count total chats, optionally filtered by workspace and empty status.
@@ -251,7 +264,12 @@ class ChatSearchService:
         int
             Total count
         """
-        return self.db.count_chats(workspace_id, empty_filter)
+        return self.db.count_chats(
+            workspace_id,
+            empty_filter,
+            source_filter=source_filter,
+            mode_filter=mode_filter,
+        )
 
     def count_search(self, query: str) -> int:
         """

@@ -311,6 +311,8 @@ class ChatRepository(BaseRepository):
         offset: int = 0,
         empty_filter: Optional[str] = None,
         project_id: Optional[int] = None,
+        source_filter: Optional[str] = None,
+        mode_filter: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
         List chats with optional filtering.
@@ -350,6 +352,14 @@ class ChatRepository(BaseRepository):
             conditions.append("c.messages_count = 0")
         elif empty_filter == "non_empty":
             conditions.append("c.messages_count > 0")
+
+        if source_filter:
+            conditions.append("c.source = ?")
+            params.append(source_filter)
+
+        if mode_filter:
+            conditions.append("c.mode = ?")
+            params.append(mode_filter)
 
         where_clause = ""
         if conditions:
@@ -419,6 +429,8 @@ class ChatRepository(BaseRepository):
         workspace_id: Optional[int] = None,
         empty_filter: Optional[str] = None,
         project_id: Optional[int] = None,
+        source_filter: Optional[str] = None,
+        mode_filter: Optional[str] = None,
     ) -> int:
         """
         Count total chats with optional filtering.
@@ -456,6 +468,14 @@ class ChatRepository(BaseRepository):
             conditions.append("c.messages_count = 0")
         elif empty_filter == "non_empty":
             conditions.append("c.messages_count > 0")
+
+        if source_filter:
+            conditions.append("c.source = ?")
+            params.append(source_filter)
+
+        if mode_filter:
+            conditions.append("c.mode = ?")
+            params.append(mode_filter)
 
         query = f"SELECT COUNT(*) FROM chats c {joins}"
         if conditions:

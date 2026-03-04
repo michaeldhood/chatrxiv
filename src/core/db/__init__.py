@@ -131,18 +131,36 @@ class Database:
         offset: int = 0,
         empty_filter: Optional[str] = None,
         project_id: Optional[int] = None,
+        source_filter: Optional[str] = None,
+        mode_filter: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Delegate to ChatRepository.list()."""
-        return self.chats.list(workspace_id, limit, offset, empty_filter, project_id)
+        return self.chats.list(
+            workspace_id,
+            limit,
+            offset,
+            empty_filter,
+            project_id,
+            source_filter,
+            mode_filter,
+        )
 
     def count_chats(
         self,
         workspace_id: Optional[int] = None,
         empty_filter: Optional[str] = None,
         project_id: Optional[int] = None,
+        source_filter: Optional[str] = None,
+        mode_filter: Optional[str] = None,
     ) -> int:
         """Delegate to ChatRepository.count()."""
-        return self.chats.count(workspace_id, empty_filter, project_id)
+        return self.chats.count(
+            workspace_id,
+            empty_filter,
+            project_id,
+            source_filter,
+            mode_filter,
+        )
 
     def delete_empty_chats(self) -> int:
         """Delegate to ChatRepository.delete_empty()."""

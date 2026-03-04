@@ -226,7 +226,9 @@ export async function fetchFilterOptions(): Promise<FilterOptionsResponse> {
 export async function fetchChats(
   page: number = 1,
   limit: number = 50,
-  filter?: string
+  filter?: string,
+  source?: string,
+  mode?: string
 ): Promise<ChatsResponse> {
   const params = new URLSearchParams({
     page: String(page),
@@ -234,6 +236,12 @@ export async function fetchChats(
   });
   if (filter) {
     params.set('filter', filter);
+  }
+  if (source) {
+    params.set('source', source);
+  }
+  if (mode) {
+    params.set('mode', mode);
   }
   
   const res = await fetchWithRetry(`${API_BASE}/api/chats?${params}`);
