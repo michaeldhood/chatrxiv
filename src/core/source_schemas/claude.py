@@ -26,6 +26,8 @@ class ContentType(StrEnum):
 
     TEXT = "text"
     THINKING = "thinking"
+    TOOL_USE = "tool_use"
+    TOOL_RESULT = "tool_result"
 
 
 class StopReason(StrEnum):
@@ -34,6 +36,8 @@ class StopReason(StrEnum):
     STOP_SEQUENCE = "stop_sequence"
     END_TURN = "end_turn"
     MAX_TOKENS = "max_tokens"
+    CONVERSATION_LENGTH_LIMIT = "conversation_length_limit"
+    USER_CANCELED = "user_canceled"
 
 
 class ClaudeContentBlock(BaseModel):
@@ -41,7 +45,10 @@ class ClaudeContentBlock(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    type: ContentType = Field(..., description="Content type: 'text' or 'thinking'")
+    type: ContentType = Field(
+        ...,
+        description="Content type: text, thinking, tool_use, or tool_result",
+    )
     text: Optional[str] = Field(None, description="Text content (for text blocks)")
     thinking: Optional[str] = Field(None, description="Thinking content (for thinking blocks)")
     citations: Optional[List[Any]] = Field(
