@@ -264,8 +264,8 @@ export default function ChatDetailPage() {
   }
   
   return (
-    <div className="relative">
-      <div className="bg-card border border-border rounded-xl overflow-hidden">
+    <div className="relative min-h-0 p-4 lg:p-6">
+      <div className="overflow-hidden rounded-xl border border-border bg-card">
         {/* Header */}
         <div className="p-6 border-b border-border">
           <h2 className="text-xl font-semibold text-foreground mb-3">

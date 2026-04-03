@@ -33,7 +33,7 @@ export default function RootLayout({
         className={`${inter.variable} ${jetbrainsMono.variable} font-sans antialiased`}
       >
         <div className="min-h-screen bg-background">
-          <div className="container max-w-5xl mx-auto px-6 py-6">
+          <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
             <header className="bg-card border border-border rounded-xl p-5 mb-6">
               <h1 className="text-2xl font-semibold text-foreground mb-3">
                 chatrxiv
