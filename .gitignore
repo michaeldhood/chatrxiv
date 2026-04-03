@@ -24,6 +24,7 @@ Thumbs.db
 *.db
 chats.db
 **/chats.db
+chats.db.backup-*
 
 # User data directory (cursor-chats app data)
 **/cursor-chats/chats.db
