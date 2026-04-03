@@ -12,6 +12,7 @@ import { ToolResult } from '@/components/tool-result';
 import { Markdown } from '@/components/markdown';
 import { formatDistanceToNow } from 'date-fns';
 import { formatChatAsMarkdown, formatChatAsJsonObject, copyToClipboard } from '@/lib/copy';
+import { ChatOutlineRail, type OutlineItem } from '@/components/chat-outline-rail';
 
 export default function ChatDetailPage() {
   const params = useParams();
@@ -78,6 +79,16 @@ export default function ChatDetailPage() {
   const userMessages = processedMessages
     .map((item, idx) => item.type === 'message' && item.data?.role === 'user' ? idx : -1)
     .filter(idx => idx !== -1);
+
+  // Build outline items for the rail — stable DOM ids + truncated preview labels.
+  const outlineItems: OutlineItem[] = userMessages.map((msgIndex, userIdx) => {
+    const item = processedMessages[msgIndex];
+    const label =
+      item.type === 'message' && item.data
+        ? (item.data.text || '').substring(0, 80) || 'Empty message'
+        : 'Message';
+    return { id: `chat-user-msg-${userIdx}`, label, userIndex: userIdx };
+  });
   
   // Jump navigation
   const scrollToUserMessage = useCallback((index: number) => {
@@ -544,6 +555,7 @@ export default function ChatDetailPage() {
                   return (
                     <div
                       key={`msg-${index}`}
+                      id={isUserMsg && userMsgIndex >= 0 ? `chat-user-msg-${userMsgIndex}` : undefined}
                       ref={(el) => {
                         if (isUserMsg && userMsgIndex >= 0 && el) {
                           userMessagesRef.current[userMsgIndex] = el;
@@ -562,58 +574,12 @@ export default function ChatDetailPage() {
         </div>
       </div>
       
-      {/* Jump Navigation FAB */}
-      {userMessages.length > 0 && (
-        <div className="fixed bottom-6 right-6 z-50">
-          <div className="relative">
-            <button
-              onClick={() => {
-                const menu = document.getElementById('jump-menu');
-                menu?.classList.toggle('hidden');
-              }}
-              className="w-14 h-14 rounded-full bg-primary text-primary-foreground font-semibold text-sm shadow-lg hover:scale-105 transition-transform flex items-center justify-center"
-            >
-              {currentUserMessageIndex + 1}/{userMessages.length}
-            </button>
-            
-            <div
-              id="jump-menu"
-              className="hidden absolute bottom-16 right-0 w-80 max-h-96 bg-card border border-border rounded-lg shadow-lg overflow-y-auto"
-            >
-              <div className="p-3 border-b border-border text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                User Messages
-              </div>
-              {userMessages.map((msgIndex, idx) => {
-                const msg = processedMessages[msgIndex];
-                // Use text field - rich_text contains raw Lexical JSON
-              const preview = msg.type === 'message' && msg.data
-                  ? (msg.data.text || '').substring(0, 60) + '...'
-                  : 'No preview';
-                
-                return (
-                  <button
-                    key={idx}
-                    onClick={() => {
-                      scrollToUserMessage(idx);
-                      document.getElementById('jump-menu')?.classList.add('hidden');
-                    }}
-                    className={`w-full p-3 text-left border-b border-border last:border-b-0 transition-colors ${
-                      idx === currentUserMessageIndex
-                        ? 'bg-primary/15 border-l-4 border-l-primary'
-                        : 'hover:bg-muted'
-                    }`}
-                  >
-                    <span className="inline-block w-6 h-6 text-center leading-6 bg-muted rounded text-[11px] font-semibold text-muted-foreground mr-2.5 align-middle">
-                      {idx + 1}
-                    </span>
-                    <span className="text-sm text-foreground">{preview}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      )}
+      <ChatOutlineRail
+        items={outlineItems}
+        activeIndex={currentUserMessageIndex}
+        onSelect={scrollToUserMessage}
+        onActiveChange={setCurrentUserMessageIndex}
+      />
     </div>
   );
 }
