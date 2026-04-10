@@ -4,10 +4,11 @@ Chats API routes.
 
 import json
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 logger = logging.getLogger(__name__)
 
@@ -1024,15 +1025,11 @@ def summarize_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
 
-    # Check if API key is configured
-    import os
-
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
         raise HTTPException(
-            status_code=500,
-            detail="ANTHROPIC_API_KEY environment variable not set. "
-            "Set it to use chat summarization.",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Summarization is not configured",
         )
 
     try:
@@ -1056,21 +1053,23 @@ def summarize_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
             "generated_at": datetime.now(timezone.utc).isoformat() + "Z",
         }
 
-    except ImportError as e:
+    except ImportError:
+        logger.exception("Summarization service import failed for chat %s", chat_id)
         raise HTTPException(
-            status_code=500,
-            detail=f"Summarization service not available: {str(e)}",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Summarization service is unavailable",
         )
-    except ValueError as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    except Exception as e:
-        import logging
-
-        logger = logging.getLogger(__name__)
-        logger.error("Error generating summary: %s", e, exc_info=True)
+    except ValueError:
+        logger.exception("Invalid summarization configuration for chat %s", chat_id)
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to generate summary: {str(e)}",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Summarization is not configured correctly",
+        )
+    except Exception:
+        logger.exception("Error generating summary for chat %s", chat_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate summary",
         )
 
 

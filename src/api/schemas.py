@@ -228,3 +228,17 @@ class DailyActivityAggregate(BaseModel):
     output_tokens: int
     total_tokens: int
     activity_count: int
+
+
+class ErrorInfo(BaseModel):
+    """Structured error payload returned by the API."""
+
+    code: str
+    message: str
+    request_id: str
+
+
+class ErrorResponse(BaseModel):
+    """Standard API error envelope for unexpected server failures."""
+
+    error: ErrorInfo

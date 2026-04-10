@@ -3,6 +3,7 @@ Activity API routes.
 
 Provides endpoints for querying cursor activity data and statistics.
 """
+import logging
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -16,6 +17,7 @@ from src.api.schemas import (
 from src.core.db import ChatDatabase
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.get("/activity", response_model=List[ActivityRecord])
@@ -36,8 +38,12 @@ def get_activity(
             start_date=start_date, end_date=end_date, limit=limit, offset=offset
         )
         return activities
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching activity: {str(e)}")
+    except Exception:
+        logger.exception("Failed to fetch activity records")
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to fetch activity records",
+        )
 
 
 @router.get("/activity/summary", response_model=ActivitySummary)
@@ -54,8 +60,12 @@ def get_activity_summary(
     try:
         summary = db.get_activity_summary(start_date=start_date, end_date=end_date)
         return summary
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching summary: {str(e)}")
+    except Exception:
+        logger.exception("Failed to fetch activity summary")
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to fetch activity summary",
+        )
 
 
 @router.get("/activity/daily", response_model=List[DailyActivityAggregate])
@@ -119,5 +129,9 @@ def get_daily_activity(
             })
 
         return results
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching daily activity: {str(e)}")
+    except Exception:
+        logger.exception("Failed to fetch daily activity")
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to fetch daily activity",
+        )

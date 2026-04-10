@@ -9,11 +9,14 @@ import logging
 import os
 import threading
 from contextlib import asynccontextmanager
+from uuid import uuid4
 from typing import Optional
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
+from src.api.schemas import ErrorDetail, ErrorResponse
 from src.api.routes import activity, chats, health, search, stream
 
 logger = logging.getLogger(__name__)
@@ -153,6 +156,34 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def add_request_id(request: Request, call_next):
+    """Attach a request ID to each request/response cycle."""
+    request_id = request.headers.get("X-Request-ID") or str(uuid4())
+    request.state.request_id = request_id
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
+    return response
+
+
+@app.exception_handler(Exception)
+async def handle_unexpected_exception(request: Request, exc: Exception):
+    """Return a structured 500 response for unexpected errors."""
+    request_id = getattr(request.state, "request_id", str(uuid4()))
+    logger.exception("Unhandled API exception [request_id=%s]", request_id, exc_info=exc)
+    return JSONResponse(
+        status_code=500,
+        content=ErrorResponse(
+            error=ErrorDetail(
+                code="INTERNAL_ERROR",
+                message="An unexpected error occurred",
+                request_id=request_id,
+            )
+        ).model_dump(),
+        headers={"X-Request-ID": request_id},
+    )
 
 # Include routers
 app.include_router(chats.router, prefix="/api", tags=["chats"])
