@@ -4,6 +4,7 @@ import { Suspense, useState, useEffect, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { searchWithFacets, type SearchFacetsResponse } from '@/lib/api';
+import { HighlightedSnippet } from '@/components/highlighted-snippet';
 
 function SearchPageContent() {
   const searchParams = useSearchParams();
@@ -301,9 +302,9 @@ function SearchPageContent() {
                   </h3>
                   
                   {result.snippet && (
-                    <div 
+                    <HighlightedSnippet
+                      snippet={result.snippet}
                       className="text-sm text-muted-foreground mb-2 line-clamp-2"
-                      dangerouslySetInnerHTML={{ __html: result.snippet }}
                     />
                   )}
                   
