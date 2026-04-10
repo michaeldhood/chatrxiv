@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from src.api.schemas import ErrorInfo, ErrorResponse
-from src.api.routes import activity, chats, health, search, stream, settings
+from src.api.routes import activity, chats, health, search, stream, settings, status
 
 logger = logging.getLogger(__name__)
 
@@ -192,3 +192,4 @@ app.include_router(stream.router, prefix="/api", tags=["stream"])
 app.include_router(activity.router, prefix="/api", tags=["activity"])
 app.include_router(health.router, prefix="/api", tags=["health"])
 app.include_router(settings.router, prefix="/api", tags=["settings"])
+app.include_router(status.router, prefix="/api", tags=["status"])

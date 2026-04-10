@@ -313,3 +313,22 @@ class IngestResponse(BaseModel):
     message: str
     mode: str
     sources: List[str] = Field(default_factory=list)
+
+
+class StatusSourceInfo(BaseModel):
+    """Per-source status information for onboarding and first-run UX."""
+
+    name: str
+    configured: bool
+    detected: bool
+    last_ingestion: Optional[str] = None
+    chat_count: int = 0
+
+
+class StatusResponse(BaseModel):
+    """High-level application status for onboarding."""
+
+    has_data: bool
+    chat_count: int
+    sources: List[StatusSourceInfo] = Field(default_factory=list)
+    runtime: RuntimeSettingsInfo

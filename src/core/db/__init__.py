@@ -148,6 +148,10 @@ class Database:
         """Delegate to ChatRepository.count()."""
         return self.chats.count(workspace_id, empty_filter, project_id)
 
+    def count_chats_by_source(self) -> Dict[str, int]:
+        """Delegate to ChatRepository.count_by_source()."""
+        return self.chats.count_by_source()
+
     def delete_empty_chats(self) -> int:
         """Delegate to ChatRepository.delete_empty()."""
         return self.chats.delete_empty()
@@ -155,6 +159,10 @@ class Database:
     def get_filter_options(self) -> Dict[str, Any]:
         """Delegate to ChatRepository.get_filter_options()."""
         return self.chats.get_filter_options()
+
+    def get_source_chat_counts(self) -> Dict[str, int]:
+        """Delegate to ChatRepository.get_source_counts()."""
+        return self.chats.get_source_counts()
 
     def get_last_updated_at(self) -> Optional[datetime]:
         """Delegate to ChatRepository.get_last_updated_at()."""

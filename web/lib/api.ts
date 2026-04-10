@@ -301,6 +301,21 @@ export interface IngestResponse {
 
 export type IngestMode = "incremental" | "full";
 
+export interface SourceStatusInfo {
+  name: string;
+  configured: boolean;
+  detected: boolean;
+  last_ingestion?: string | null;
+  chat_count: number;
+}
+
+export interface StatusResponse {
+  has_data: boolean;
+  chat_count: number;
+  sources: SourceStatusInfo[];
+  runtime: RuntimeSettingsInfo;
+}
+
 /**
  * Fetch available filter options (sources, modes) with counts.
  */
@@ -572,5 +587,15 @@ export async function postIngest(body: {
     );
   }
 
+  return res.json();
+}
+
+export async function fetchStatus(): Promise<StatusResponse> {
+  const res = await fetchWithRetry(`${API_BASE}/api/status`);
+  if (!res.ok) {
+    throw new Error(
+      await getResponseErrorMessage(res, `Failed to fetch status: ${res.statusText}`)
+    );
+  }
   return res.json();
 }

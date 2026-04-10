@@ -3,7 +3,15 @@
 import { Suspense, useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { fetchChats, fetchChatsBulk, getErrorMessage, type ChatSummary } from '@/lib/api';
+import {
+  fetchChats,
+  fetchChatsBulk,
+  fetchStatus,
+  getErrorMessage,
+  postIngest,
+  type ChatSummary,
+  type StatusResponse,
+} from '@/lib/api';
 import { useSSE } from '@/lib/hooks/use-sse';
 import {
   formatMultipleChatsAsMarkdown,
@@ -24,6 +32,8 @@ function HomePageContent() {
   const [filter, setFilter] = useState<string | null>(searchParams.get('filter') || null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [status, setStatus] = useState<StatusResponse | null>(null);
+  const [statusLoading, setStatusLoading] = useState(true);
 
   // Selection state
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -48,12 +58,38 @@ function HomePageContent() {
     }
   }, [page, filter]);
 
+  const loadStatus = useCallback(async () => {
+    setStatusLoading(true);
+    try {
+      const data = await fetchStatus();
+      setStatus(data);
+    } catch (error) {
+      console.error('Failed to load status:', error);
+      setLoadError((current) => current ?? getErrorMessage(error, 'Failed to load application status.'));
+    } finally {
+      setStatusLoading(false);
+    }
+  }, []);
+
   // SSE hook for live updates
-  useSSE(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/stream`, loadChats);
+  useSSE(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/stream`, async () => {
+    await Promise.all([loadChats(), loadStatus()]);
+  });
 
   useEffect(() => {
     loadChats();
-  }, [loadChats]);
+    loadStatus();
+  }, [loadChats, loadStatus]);
+
+  useEffect(() => {
+    if (!status?.runtime.manual_ingest.running) return;
+
+    const interval = window.setInterval(() => {
+      void Promise.all([loadChats(), loadStatus()]);
+    }, 2500);
+
+    return () => window.clearInterval(interval);
+  }, [loadChats, loadStatus, status?.runtime.manual_ingest.running]);
 
   useEffect(() => {
     const newFilter = searchParams.get('filter');
@@ -221,8 +257,34 @@ function HomePageContent() {
     }`;
   };
 
+  const handleStartIngestion = async () => {
+    const preferredSources = status?.sources
+      .filter((source) => source.detected || source.configured)
+      .map((source) => source.name) ?? ["cursor", "claude-code"];
+
+    try {
+      const response = await postIngest({
+        mode: "incremental",
+        sources: preferredSources.length > 0 ? preferredSources : ["cursor"],
+      });
+      addToast({
+        variant: "success",
+        title: "Ingestion started",
+        description: `${response.sources.join(", ")} (${response.mode})`,
+      });
+      await loadStatus();
+    } catch (error) {
+      addToast({
+        variant: "error",
+        title: "Ingestion failed to start",
+        description: getErrorMessage(error, "Unable to start ingestion."),
+      });
+    }
+  };
+
   const hasNext = chats.length === 50;
   const allOnPageSelected = chats.length > 0 && chats.every(c => selectedIds.has(c.id));
+  const showOnboarding = !statusLoading && status?.has_data === false;
 
   return (
     <div>
@@ -270,9 +332,73 @@ function HomePageContent() {
             {loadError}
           </div>
         )}
-        {loading ? (
+        {statusLoading || loading ? (
           <div className="p-12 text-center text-muted-foreground">
             Loading chats...
+          </div>
+        ) : showOnboarding ? (
+          <div className="p-10">
+            <div className="rounded-xl border border-primary/20 bg-primary/5 p-6">
+              <h2 className="mb-2 text-2xl font-semibold text-foreground">
+                Welcome to chatrxiv
+              </h2>
+              <p className="mb-6 text-sm leading-6 text-muted-foreground">
+                Start by ingesting chats from the AI tools detected on this machine.
+                Once data is loaded, this page will switch to your chat archive automatically.
+              </p>
+
+              <div className="mb-6 grid gap-3 md:grid-cols-2">
+                {status?.sources.map((source) => (
+                  <div
+                    key={source.name}
+                    className="rounded-lg border border-border bg-card/60 p-4"
+                  >
+                    <div className="mb-2 flex items-center justify-between gap-3">
+                      <h3 className="text-sm font-semibold text-foreground">
+                        {source.name}
+                      </h3>
+                      <span
+                        className={`rounded-full px-2 py-1 text-[11px] font-medium ${
+                          source.detected || source.configured
+                            ? "bg-accent-green/15 text-accent-green"
+                            : "bg-muted text-muted-foreground"
+                        }`}
+                      >
+                        {source.detected || source.configured ? "Available" : "Not detected"}
+                      </span>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      Chats: {source.chat_count}
+                    </p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Last ingestion: {source.last_ingestion ? new Date(source.last_ingestion).toLocaleString() : "Never"}
+                    </p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-4">
+                <button
+                  onClick={handleStartIngestion}
+                  disabled={status?.runtime.manual_ingest.running}
+                  className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {status?.runtime.manual_ingest.running ? "Ingestion running..." : "Start ingestion"}
+                </button>
+
+                <div className="text-sm text-muted-foreground">
+                  {status?.runtime.manual_ingest.running
+                    ? `Started: ${status.runtime.manual_ingest.started_at ? new Date(status.runtime.manual_ingest.started_at).toLocaleString() : "just now"}`
+                    : `Detected ${status?.sources.filter((source) => source.detected || source.configured).length ?? 0} ready source(s)`}
+                </div>
+              </div>
+
+              {status?.runtime.manual_ingest.last_error && (
+                <p className="mt-4 text-sm text-destructive">
+                  Last error: {status.runtime.manual_ingest.last_error}
+                </p>
+              )}
+            </div>
           </div>
         ) : chats.length === 0 ? (
           <div className="p-16 text-center">

@@ -657,3 +657,23 @@ class ChatRepository(BaseRepository):
         if row and row[0]:
             return datetime.fromisoformat(row[0])
         return None
+
+    def count_by_source(self) -> Dict[str, int]:
+        """
+        Count chats grouped by source.
+
+        Returns
+        -------
+        Dict[str, int]
+            Mapping of source name to chat count
+        """
+        cursor = self.cursor()
+        cursor.execute(
+            """
+            SELECT source, COUNT(*)
+            FROM chats
+            WHERE source IS NOT NULL AND source != ''
+            GROUP BY source
+            """
+        )
+        return {row[0]: row[1] for row in cursor.fetchall()}

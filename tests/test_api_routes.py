@@ -5,6 +5,8 @@ Integration tests for FastAPI API routes.
 import asyncio
 import os
 
+from fastapi.testclient import TestClient
+
 from src.api.deps import get_db
 from src.api.main import app
 from src.api.routes.stream import stream
@@ -322,3 +324,36 @@ def test_summarize_route_uses_safe_missing_key_message(api_client):
 
     assert response.status_code == 503
     assert response.json() == {"detail": "Summarization is not configured"}
+
+
+def test_status_reports_existing_data(api_client):
+    response = api_client.get("/api/status")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["has_data"] is True
+    assert payload["chat_count"] == 3
+    assert len(payload["sources"]) == 4
+    cursor_source = next(source for source in payload["sources"] if source["name"] == "cursor")
+    assert cursor_source["chat_count"] == 1
+    assert "runtime" in payload
+    assert payload["runtime"]["manual_ingest"]["running"] is False
+
+
+def test_status_reports_empty_database(temp_db):
+    os.environ["CHATRXIV_WATCH"] = "false"
+
+    def override_get_db():
+        yield temp_db
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        with TestClient(app, raise_server_exceptions=False) as client:
+            response = client.get("/api/status")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["has_data"] is False
+    assert payload["chat_count"] == 0
