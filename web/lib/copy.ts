@@ -2,7 +2,7 @@
  * Shared copy/formatting utilities for single and multi-chat copy.
  */
 
-import type { ChatDetail, Message } from './api';
+import type { Message } from './api';
 
 export interface CopyableChat {
   title?: string | null;

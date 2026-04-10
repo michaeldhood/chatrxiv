@@ -3,7 +3,7 @@
 import { Suspense, useState, useEffect, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { searchWithFacets, type SearchResult, type SearchFacetsResponse } from '@/lib/api';
+import { searchWithFacets, type SearchFacetsResponse } from '@/lib/api';
 
 function SearchPageContent() {
   const searchParams = useSearchParams();

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { fetchActivitySummary, fetchDailyActivity, type ActivitySummary, type DailyActivityAggregate } from '@/lib/api';
 
 export default function ActivityPage() {
@@ -10,7 +10,7 @@ export default function ActivityPage() {
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const [summaryData, dailyData] = await Promise.all([
@@ -24,11 +24,11 @@ export default function ActivityPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [endDate, startDate]);
 
   useEffect(() => {
     loadData();
-  }, [startDate, endDate]);
+  }, [loadData]);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('en-US', {

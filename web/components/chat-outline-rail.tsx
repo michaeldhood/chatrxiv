@@ -33,15 +33,12 @@ export function ChatOutlineRail({
   // Proportional document positions (0–1) for each tick.
   const [tickPositions, setTickPositions] = useState<number[]>([]);
   const [isExpanded, setIsExpanded] = useState(false);
-  // Whether the device has a fine pointer that supports hover.
-  const [hasHover, setHasHover] = useState(false);
 
   const rafRef = useRef<number | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    setHasHover(window.matchMedia('(hover: hover) and (pointer: fine)').matches);
-  }, []);
+  const hasHover =
+    typeof window !== 'undefined' &&
+    window.matchMedia('(hover: hover) and (pointer: fine)').matches;
 
   // Measure each anchor's document Y, normalized by total scroll height.
   // The resulting proportion drives the tick's `top` % within the fixed
