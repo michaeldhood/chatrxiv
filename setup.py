@@ -13,6 +13,17 @@ setup(
     packages=find_packages(),
     install_requires=[
         "pandas>=1.0.0",
+        "fastapi>=0.109.0",
+        "uvicorn[standard]>=0.27.0",
+        "pydantic>=2.0.0",
+        "dlt[rest_api]>=1.0.0",
+        "watchdog>=3.0.0",
+        "click>=8.0.0",
+        "anthropic>=0.34.0",
+        "matplotlib>=3.5.0",
+        "fastmcp>=2.14.5",
+        "mcp>=1.24.0",
+        "asyncpg>=0.31.0",
     ],
     python_requires=">=3.7",
     entry_points={
