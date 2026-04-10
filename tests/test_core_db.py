@@ -1,24 +1,10 @@
 """
 Tests for core database layer.
 """
-import pytest
-import tempfile
-import os
 from datetime import datetime
 
 from src.core.db import ChatDatabase
 from src.core.models import Chat, Message, Workspace, ChatMode, MessageRole
-
-
-@pytest.fixture
-def temp_db():
-    """Create a temporary database for testing."""
-    fd, path = tempfile.mkstemp(suffix='.db')
-    os.close(fd)
-    db = ChatDatabase(path)
-    yield db
-    db.close()
-    os.unlink(path)
 
 
 def test_workspace_upsert(temp_db):

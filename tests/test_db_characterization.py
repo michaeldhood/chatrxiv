@@ -11,8 +11,6 @@ Purpose:
 """
 
 import pytest
-import tempfile
-import os
 from datetime import datetime, timedelta
 
 from src.core.db import ChatDatabase
@@ -24,19 +22,6 @@ from src.core.models import (
     ChatMode,
     MessageRole,
 )
-
-
-@pytest.fixture
-def temp_db():
-    """Create a temporary database for testing."""
-    fd, path = tempfile.mkstemp(suffix=".db")
-    os.close(fd)
-    db = ChatDatabase(path)
-    yield db
-    db.close()
-    os.unlink(path)
-
-
 @pytest.fixture
 def workspace_with_chat(temp_db):
     """Create a workspace with a chat for tests that need pre-existing data."""

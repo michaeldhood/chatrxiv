@@ -1,0 +1,94 @@
+[
+  {
+    "data": {
+      "tabs": [
+        {
+          "tabId": "tab-1",
+          "chatTitle": "Parser Fixture Chat",
+          "bubbles": [
+            {
+              "type": "user",
+              "messageType": "user",
+              "id": "bubble-1",
+              "requestId": "req-1",
+              "text": "How do I search in Python?",
+              "rawText": "How do I search in Python?",
+              "timestamp": "2026-04-01T10:00:00Z"
+            },
+            {
+              "type": "assistant",
+              "messageType": "assistant",
+              "id": "bubble-2",
+              "requestId": "req-1",
+              "text": "Use ripgrep or Python filtering.",
+              "rawText": "Use ripgrep or Python filtering.",
+              "modelType": "claude-3-5-sonnet",
+              "hasCodeBlock": false,
+              "timestamp": "2026-04-01T10:00:10Z"
+            },
+            {
+              "type": "user",
+              "messageType": "user",
+              "id": "bubble-3",
+              "requestId": "req-2",
+              "text": "Show me a regex example.",
+              "rawText": "Show me a regex example.",
+              "timestamp": "2026-04-01T10:01:00Z"
+            },
+            {
+              "type": "assistant",
+              "messageType": "assistant",
+              "id": "bubble-4",
+              "requestId": "req-2",
+              "text": "You can use `re.search(...)`.",
+              "rawText": "You can use `re.search(...)`.",
+              "modelType": "claude-3-5-sonnet",
+              "hasCodeBlock": true,
+              "timestamp": "2026-04-01T10:01:12Z"
+            },
+            {
+              "type": "user",
+              "messageType": "user",
+              "id": "bubble-5",
+              "requestId": "req-3",
+              "text": "What about SQL?",
+              "rawText": "What about SQL?",
+              "timestamp": "2026-04-01T10:02:00Z"
+            },
+            {
+              "type": "assistant",
+              "messageType": "assistant",
+              "id": "bubble-6",
+              "requestId": "req-3",
+              "text": "Use a WHERE clause for filtering.",
+              "rawText": "Use a WHERE clause for filtering.",
+              "modelType": "claude-3-5-sonnet",
+              "hasCodeBlock": false,
+              "timestamp": "2026-04-01T10:02:18Z"
+            },
+            {
+              "type": "user",
+              "messageType": "user",
+              "id": "bubble-7",
+              "requestId": "req-4",
+              "text": "Can you summarize this?",
+              "rawText": "Can you summarize this?",
+              "timestamp": "2026-04-01T10:03:00Z"
+            },
+            {
+              "type": "assistant",
+              "messageType": "assistant",
+              "id": "bubble-8",
+              "requestId": "req-4",
+              "text": "We discussed search in Python and SQL.",
+              "rawText": "We discussed search in Python and SQL.",
+              "modelType": "claude-3-5-sonnet",
+              "hasCodeBlock": false,
+              "timestamp": "2026-04-01T10:03:15Z"
+            }
+          ]
+        }
+      ]
+    }
+  }
+]
