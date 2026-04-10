@@ -1,9 +1,12 @@
 "use client";
 
+import type { ComponentPropsWithoutRef } from "react";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import type { Components } from 'react-markdown';
+
+type CodeComponentProps = ComponentPropsWithoutRef<"code"> & { inline?: boolean };
 
 interface MarkdownProps {
   content: string;
@@ -18,7 +21,7 @@ interface MarkdownProps {
 export function Markdown({ content, className = '' }: MarkdownProps) {
   const components: Components = {
           // Custom styling for code blocks
-          code: ({ inline, className, children, ...props }) => {
+          code: ({ inline, className, children, ...props }: CodeComponentProps) => {
             if (inline) {
               return (
                 <code
