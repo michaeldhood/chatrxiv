@@ -4,6 +4,46 @@
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
 
+interface ApiErrorEnvelope {
+  error?: {
+    code?: string;
+    message?: string;
+    request_id?: string;
+  };
+  detail?: string;
+}
+
+async function getResponseErrorMessage(
+  res: Response,
+  fallback: string
+): Promise<string> {
+  try {
+    const errorBody = (await res.json()) as ApiErrorEnvelope;
+    if (errorBody.error?.message) {
+      return errorBody.error.request_id
+        ? `${errorBody.error.message} (Request ID: ${errorBody.error.request_id})`
+        : errorBody.error.message;
+    }
+    if (typeof errorBody.detail === 'string' && errorBody.detail.trim()) {
+      return errorBody.detail;
+    }
+  } catch {
+    // Ignore JSON parsing failures and use fallback message.
+  }
+
+  return fallback;
+}
+
+export function getErrorMessage(
+  error: unknown,
+  fallback: string
+): string {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+  return fallback;
+}
+
 /**
  * Fetch with exponential backoff retry for network errors.
  * Only retries on connection failures, not HTTP errors (404, 500, etc.)
@@ -215,7 +255,9 @@ export interface DailyActivityAggregate {
 export async function fetchFilterOptions(): Promise<FilterOptionsResponse> {
   const res = await fetchWithRetry(`${API_BASE}/api/filter-options`);
   if (!res.ok) {
-    throw new Error(`Failed to fetch filter options: ${res.statusText}`);
+    throw new Error(
+      await getResponseErrorMessage(res, `Failed to fetch filter options: ${res.statusText}`)
+    );
   }
   return res.json();
 }
@@ -238,7 +280,9 @@ export async function fetchChats(
   
   const res = await fetchWithRetry(`${API_BASE}/api/chats?${params}`);
   if (!res.ok) {
-    throw new Error(`Failed to fetch chats: ${res.statusText}`);
+    throw new Error(
+      await getResponseErrorMessage(res, `Failed to fetch chats: ${res.statusText}`)
+    );
   }
   return res.json();
 }
@@ -252,7 +296,7 @@ export async function fetchChat(id: number): Promise<ChatDetail> {
     if (res.status === 404) {
       throw new Error(`Chat ${id} not found`);
     }
-    throw new Error(`Failed to fetch chat: ${res.statusText}`);
+    throw new Error(await getResponseErrorMessage(res, `Failed to fetch chat: ${res.statusText}`));
   }
   return res.json();
 }
@@ -274,7 +318,9 @@ export async function fetchChatsBulk(chatIds: number[]): Promise<BulkChatsRespon
     body: JSON.stringify({ chat_ids: chatIds }),
   });
   if (!res.ok) {
-    throw new Error(`Failed to fetch chats in bulk: ${res.statusText}`);
+    throw new Error(
+      await getResponseErrorMessage(res, `Failed to fetch chats in bulk: ${res.statusText}`)
+    );
   }
   return res.json();
 }
@@ -297,7 +343,7 @@ export async function searchChats(
   
   const res = await fetchWithRetry(`${API_BASE}/api/search?${params}`);
   if (!res.ok) {
-    throw new Error(`Search failed: ${res.statusText}`);
+    throw new Error(await getResponseErrorMessage(res, `Search failed: ${res.statusText}`));
   }
   return res.json();
 }
@@ -320,7 +366,9 @@ export async function instantSearch(
   
   const res = await fetchWithRetry(`${API_BASE}/api/instant-search?${params}`);
   if (!res.ok) {
-    throw new Error(`Instant search failed: ${res.statusText}`);
+    throw new Error(
+      await getResponseErrorMessage(res, `Instant search failed: ${res.statusText}`)
+    );
   }
   return res.json();
 }
@@ -353,7 +401,9 @@ export async function searchWithFacets(
   
   const res = await fetchWithRetry(`${API_BASE}/api/search/facets?${params}`);
   if (!res.ok) {
-    throw new Error(`Faceted search failed: ${res.statusText}`);
+    throw new Error(
+      await getResponseErrorMessage(res, `Faceted search failed: ${res.statusText}`)
+    );
   }
   return res.json();
 }
@@ -366,8 +416,9 @@ export async function summarizeChat(id: number): Promise<{ summary: string; chat
     method: 'POST',
   });
   if (!res.ok) {
-    const error = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(error.detail || `Failed to summarize chat: ${res.statusText}`);
+    throw new Error(
+      await getResponseErrorMessage(res, `Failed to summarize chat: ${res.statusText}`)
+    );
   }
   return res.json();
 }
@@ -390,7 +441,9 @@ export async function fetchActivity(
   
   const res = await fetchWithRetry(`${API_BASE}/api/activity?${params}`);
   if (!res.ok) {
-    throw new Error(`Failed to fetch activity: ${res.statusText}`);
+    throw new Error(
+      await getResponseErrorMessage(res, `Failed to fetch activity: ${res.statusText}`)
+    );
   }
   return res.json();
 }
@@ -408,7 +461,9 @@ export async function fetchActivitySummary(
   
   const res = await fetchWithRetry(`${API_BASE}/api/activity/summary?${params}`);
   if (!res.ok) {
-    throw new Error(`Failed to fetch activity summary: ${res.statusText}`);
+    throw new Error(
+      await getResponseErrorMessage(res, `Failed to fetch activity summary: ${res.statusText}`)
+    );
   }
   return res.json();
 }
@@ -426,7 +481,9 @@ export async function fetchDailyActivity(
   
   const res = await fetchWithRetry(`${API_BASE}/api/activity/daily?${params}`);
   if (!res.ok) {
-    throw new Error(`Failed to fetch daily activity: ${res.statusText}`);
+    throw new Error(
+      await getResponseErrorMessage(res, `Failed to fetch daily activity: ${res.statusText}`)
+    );
   }
   return res.json();
 }

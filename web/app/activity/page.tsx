@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { fetchActivitySummary, fetchDailyActivity, type ActivitySummary, type DailyActivityAggregate } from '@/lib/api';
+import { useToast } from '@/components/toast';
 
 export default function ActivityPage() {
   const [summary, setSummary] = useState<ActivitySummary | null>(null);
@@ -9,9 +10,12 @@ export default function ActivityPage() {
   const [loading, setLoading] = useState(true);
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const { showToast } = useToast();
 
   const loadData = useCallback(async () => {
     setLoading(true);
+    setErrorMessage(null);
     try {
       const [summaryData, dailyData] = await Promise.all([
         fetchActivitySummary(startDate || undefined, endDate || undefined),
@@ -20,11 +24,20 @@ export default function ActivityPage() {
       setSummary(summaryData);
       setDailyData(dailyData);
     } catch (error) {
-      console.error('Failed to load activity data:', error);
+      const message =
+        error instanceof Error ? error.message : 'Failed to load activity data.';
+      setSummary(null);
+      setDailyData([]);
+      setErrorMessage(message);
+      showToast({
+        title: 'Failed to load activity data',
+        description: message,
+        variant: 'error',
+      });
     } finally {
       setLoading(false);
     }
-  }, [endDate, startDate]);
+  }, [endDate, showToast, startDate]);
 
   useEffect(() => {
     loadData();
@@ -61,6 +74,12 @@ export default function ActivityPage() {
 
   return (
     <div className="space-y-6">
+      {errorMessage && (
+        <div className="bg-destructive/10 border border-destructive/20 rounded-xl p-4">
+          <p className="text-sm text-destructive">{errorMessage}</p>
+        </div>
+      )}
+
       {/* Date Filters */}
       <div className="bg-card border border-border rounded-xl p-5">
         <h2 className="text-xl font-semibold mb-4">Date Range</h2>

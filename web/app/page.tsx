@@ -3,17 +3,19 @@
 import { Suspense, useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { fetchChats, fetchChatsBulk, type ChatSummary } from '@/lib/api';
+import { fetchChats, fetchChatsBulk, getErrorMessage, type ChatSummary } from '@/lib/api';
 import { useSSE } from '@/lib/hooks/use-sse';
 import {
   formatMultipleChatsAsMarkdown,
   formatMultipleChatsAsJson,
   copyToClipboard,
 } from '@/lib/copy';
+import { useToast } from '@/components/toast';
 
 type CopyStatus = 'idle' | 'loading' | 'success' | 'error';
 
 function HomePageContent() {
+  const { addToast } = useToast();
   const searchParams = useSearchParams();
   const router = useRouter();
   const [chats, setChats] = useState<ChatSummary[]>([]);
@@ -21,6 +23,7 @@ function HomePageContent() {
   const [page, setPage] = useState(Number(searchParams.get('page')) || 1);
   const [filter, setFilter] = useState<string | null>(searchParams.get('filter') || null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Selection state
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -36,8 +39,10 @@ function HomePageContent() {
       const data = await fetchChats(page, 50, filter || undefined);
       setChats(data.chats);
       setTotalChats(data.total);
+      setLoadError(null);
     } catch (error) {
       console.error('Failed to load chats:', error);
+      setLoadError(getErrorMessage(error, 'Failed to load chats.'));
     } finally {
       setLoading(false);
     }
@@ -149,10 +154,20 @@ function HomePageContent() {
       const charCount = await copyToClipboard(text);
       setCopyStatus('success');
       setCopyMessage(`Copied ${fullChats.length} chat${fullChats.length !== 1 ? 's' : ''} (${charCount.toLocaleString()} chars)`);
+      addToast({
+        variant: 'success',
+        title: 'Copy complete',
+        description: `Copied ${fullChats.length} chat${fullChats.length !== 1 ? 's' : ''} (${charCount.toLocaleString()} chars) to the clipboard.`,
+      });
     } catch (error) {
       console.error('Bulk copy failed:', error);
       setCopyStatus('error');
       setCopyMessage('Copy failed');
+      addToast({
+        variant: 'error',
+        title: 'Copy failed',
+        description: getErrorMessage(error, 'Unable to copy the selected chats.'),
+      });
     }
   };
 
@@ -250,6 +265,11 @@ function HomePageContent() {
 
       {/* Chat List */}
       <div className="bg-card border border-border rounded-xl overflow-hidden">
+        {loadError && (
+          <div className="border-b border-destructive/20 bg-destructive/10 px-6 py-4 text-sm text-destructive">
+            {loadError}
+          </div>
+        )}
         {loading ? (
           <div className="p-12 text-center text-muted-foreground">
             Loading chats...

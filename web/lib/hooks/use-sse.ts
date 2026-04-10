@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from 'react';
+import { useToast } from '@/components/toast';
 
 /**
  * Hook for Server-Sent Events (SSE) connection.
@@ -10,6 +11,8 @@ import { useEffect, useRef } from 'react';
  */
 export function useSSE(url: string, onUpdate: () => void) {
   const onUpdateRef = useRef(onUpdate);
+  const { showToast } = useToast();
+  const parseErrorShownRef = useRef(false);
   
   // Keep callback ref up to date
   useEffect(() => {
@@ -31,6 +34,14 @@ export function useSSE(url: string, onUpdate: () => void) {
         }
       } catch (error) {
         console.error('Failed to parse SSE message:', error);
+        if (!parseErrorShownRef.current) {
+          parseErrorShownRef.current = true;
+          showToast({
+            variant: 'error',
+            title: 'Live updates failed',
+            description: 'Received an invalid update payload from the server.',
+          });
+        }
       }
     };
     
@@ -42,5 +53,5 @@ export function useSSE(url: string, onUpdate: () => void) {
     return () => {
       source.close();
     };
-  }, [url]);
+  }, [showToast, url]);
 }

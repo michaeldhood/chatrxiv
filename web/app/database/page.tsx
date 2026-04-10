@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { fetchChats, fetchFilterOptions, type ChatSummary, type FilterOption } from '@/lib/api';
 import { useSSE } from '@/lib/hooks/use-sse';
+import { useToast } from '@/components/toast';
 
 type SortField = 'title' | 'mode' | 'source' | 'messages' | 'created_at';
 type SortOrder = 'asc' | 'desc';
@@ -23,6 +24,7 @@ function DatabasePageContent() {
   const [loading, setLoading] = useState(true);
   const [availableSources, setAvailableSources] = useState<FilterOption[]>([]);
   const [availableModes, setAvailableModes] = useState<FilterOption[]>([]);
+  const { showToast } = useToast();
   
   const loadChats = useCallback(async () => {
     setLoading(true);
@@ -78,10 +80,15 @@ function DatabasePageContent() {
       setTotalChats(filtered.length);
     } catch (error) {
       console.error('Failed to load chats:', error);
+      showToast({
+        variant: 'error',
+        title: 'Database view unavailable',
+        description: error instanceof Error ? error.message : 'Failed to load chats.',
+      });
     } finally {
       setLoading(false);
     }
-  }, [page, filter, modeFilter, sourceFilter, sortBy, sortOrder]);
+  }, [page, filter, modeFilter, sourceFilter, sortBy, sortOrder, showToast]);
   
   // SSE hook for live updates
   useSSE(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/stream`, loadChats);
@@ -95,10 +102,16 @@ function DatabasePageContent() {
         setAvailableModes(options.modes);
       } catch (error) {
         console.error('Failed to load filter options:', error);
+        showToast({
+          variant: 'error',
+          title: 'Filters unavailable',
+          description:
+            error instanceof Error ? error.message : 'Failed to load filter options.',
+        });
       }
     };
     loadFilterOptions();
-  }, []);
+  }, [showToast]);
   
   useEffect(() => {
     loadChats();

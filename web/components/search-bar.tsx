@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { instantSearch, type SearchResult } from '@/lib/api';
 import Link from 'next/link';
+import { useToast } from '@/components/toast';
 
 interface SearchBarProps {
   className?: string;
@@ -20,6 +21,7 @@ interface SearchBarProps {
  */
 export function SearchBar({ className = '' }: SearchBarProps) {
   const router = useRouter();
+  const { addToast } = useToast();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [isOpen, setIsOpen] = useState(false);
@@ -47,10 +49,16 @@ export function SearchBar({ className = '' }: SearchBarProps) {
     } catch (error) {
       console.error('Search error:', error);
       setResults([]);
+      setIsOpen(false);
+      addToast({
+        variant: 'error',
+        title: 'Search failed',
+        description: error instanceof Error ? error.message : 'Unable to fetch search suggestions.',
+      });
     } finally {
       setIsSearching(false);
     }
-  }, []);
+  }, [addToast]);
   
   // Handle input change with debounce
   useEffect(() => {

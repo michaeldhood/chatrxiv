@@ -5,13 +5,16 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { searchWithFacets, type SearchFacetsResponse } from '@/lib/api';
 import { HighlightedSnippet } from '@/components/highlighted-snippet';
+import { useToast } from '@/components/toast';
 
 function SearchPageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { showToast } = useToast();
   const query = searchParams.get('q') || '';
   const [data, setData] = useState<SearchFacetsResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [page, setPage] = useState(Number(searchParams.get('page')) || 1);
   const [sortBy, setSortBy] = useState<'relevance' | 'date'>(
     (searchParams.get('sort') as 'relevance' | 'date') || 'relevance'
@@ -27,6 +30,7 @@ function SearchPageContent() {
   const loadSearch = useCallback(async () => {
     setLoading(true);
     try {
+      setErrorMessage(null);
       const result = await searchWithFacets(
         query,
         page,
@@ -38,10 +42,17 @@ function SearchPageContent() {
       setData(result);
     } catch (error) {
       console.error('Search failed:', error);
+      const message = error instanceof Error ? error.message : 'Search failed';
+      setErrorMessage(message);
+      showToast({
+        variant: 'error',
+        title: 'Search failed',
+        description: message,
+      });
     } finally {
       setLoading(false);
     }
-  }, [query, page, sortBy, selectedTags, selectedWorkspaces]);
+  }, [page, query, selectedTags, selectedWorkspaces, showToast, sortBy]);
   
   useEffect(() => {
     if (!query) {
@@ -276,6 +287,11 @@ function SearchPageContent() {
         {loading ? (
           <div className="p-12 text-center text-muted-foreground">
             Searching...
+          </div>
+        ) : errorMessage ? (
+          <div className="p-12 text-center">
+            <p className="text-destructive mb-2">Search unavailable.</p>
+            <p className="text-sm text-muted-foreground">{errorMessage}</p>
           </div>
         ) : !data || data.results.length === 0 ? (
           <div className="p-12 text-center">

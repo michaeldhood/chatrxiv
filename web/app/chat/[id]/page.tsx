@@ -13,6 +13,7 @@ import { Markdown } from '@/components/markdown';
 import { formatDistanceToNow } from 'date-fns';
 import { formatChatAsMarkdown, formatChatAsJsonObject, copyToClipboard } from '@/lib/copy';
 import { ChatOutlineRail, type OutlineItem } from '@/components/chat-outline-rail';
+import { useToast } from '@/components/toast';
 
 export default function ChatDetailPage() {
   const params = useParams();
@@ -25,6 +26,7 @@ export default function ChatDetailPage() {
   const [currentUserMessageIndex, setCurrentUserMessageIndex] = useState(0);
   const [summaryExpanded, setSummaryExpanded] = useState(true);
   const userMessagesRef = useRef<HTMLDivElement[]>([]);
+  const { showToast } = useToast();
   
   // Visibility filter state (thinking hidden by default, others visible)
   const [filterState, setFilterState] = useState({
@@ -41,10 +43,15 @@ export default function ChatDetailPage() {
       setChat(data);
     } catch (error) {
       console.error('Failed to load chat:', error);
+      showToast({
+        variant: 'error',
+        title: 'Chat unavailable',
+        description: error instanceof Error ? error.message : 'Failed to load chat.',
+      });
     } finally {
       setLoading(false);
     }
-  }, [chatId]);
+  }, [chatId, showToast]);
 
   useEffect(() => {
     loadChat();
@@ -136,10 +143,18 @@ export default function ChatDetailPage() {
     try {
       const text = formatChatAsMarkdown(chat);
       const charCount = await copyToClipboard(text);
-      alert(`Copied! (${charCount.toLocaleString()} chars)`);
+      showToast({
+        variant: 'success',
+        title: 'Chat copied',
+        description: `${charCount.toLocaleString()} characters copied to the clipboard.`,
+      });
     } catch (error) {
       console.error('Failed to copy:', error);
-      alert('Copy failed');
+      showToast({
+        variant: 'error',
+        title: 'Copy failed',
+        description: error instanceof Error ? error.message : 'Could not copy the chat.',
+      });
     }
   };
 
@@ -147,11 +162,19 @@ export default function ChatDetailPage() {
     if (!chat) return;
     try {
       const jsonStr = JSON.stringify(formatChatAsJsonObject(chat), null, 2);
-      await copyToClipboard(jsonStr);
-      alert('Copied as JSON!');
+      const charCount = await copyToClipboard(jsonStr);
+      showToast({
+        variant: 'success',
+        title: 'Chat copied as JSON',
+        description: `${charCount.toLocaleString()} characters copied to the clipboard.`,
+      });
     } catch (error) {
       console.error('Failed to copy:', error);
-      alert('Copy failed');
+      showToast({
+        variant: 'error',
+        title: 'Copy failed',
+        description: error instanceof Error ? error.message : 'Could not copy JSON.',
+      });
     }
   };
 
@@ -165,9 +188,20 @@ export default function ChatDetailPage() {
       await summarizeChat(chat.id);
       // Reload chat to get updated summary
       await loadChat();
+      showToast({
+        variant: 'success',
+        title: 'Summary generated',
+        description: 'The chat summary has been refreshed.',
+      });
     } catch (error) {
       console.error('Failed to summarize:', error);
-      setSummaryError(error instanceof Error ? error.message : 'Failed to generate summary');
+      const message = error instanceof Error ? error.message : 'Failed to generate summary';
+      setSummaryError(message);
+      showToast({
+        variant: 'error',
+        title: 'Summarization failed',
+        description: message,
+      });
     } finally {
       setSummarizing(false);
     }

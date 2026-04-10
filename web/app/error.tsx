@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from 'react';
+import { useToast } from '@/components/toast';
 
 export default function Error({
   error,
@@ -9,10 +10,17 @@ export default function Error({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const { showToast } = useToast();
+
   useEffect(() => {
     // Log the error to an error reporting service
     console.error('Application error:', error);
-  }, [error]);
+    showToast({
+      variant: 'error',
+      title: 'Application error',
+      description: 'An unexpected error occurred.',
+    });
+  }, [error, showToast]);
 
   return (
     <div className="min-h-[400px] flex items-center justify-center">
