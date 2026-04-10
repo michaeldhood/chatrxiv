@@ -81,6 +81,8 @@ class ChatDetail(BaseModel):
     plans: List[PlanInfo] = Field(default_factory=list)
     messages: List[Message] = Field(default_factory=list)
     processed_messages: List[Dict[str, Any]] = Field(default_factory=list)
+    total_messages: Optional[int] = None
+    pagination: Optional[Dict[str, Any]] = None
 
 
 class BulkChatsRequest(BaseModel):

@@ -16,16 +16,20 @@ import { ChatOutlineRail, type OutlineItem } from '@/components/chat-outline-rai
 import { useToast } from '@/components/toast';
 
 export default function ChatDetailPage() {
+  const INITIAL_MESSAGE_LIMIT = 50;
   const params = useParams();
   const chatId = Number(params.id);
   const [chat, setChat] = useState<ChatDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [messageLimit, setMessageLimit] = useState(INITIAL_MESSAGE_LIMIT);
   const [summarizing, setSummarizing] = useState(false);
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [expandedToolGroups, setExpandedToolGroups] = useState<Set<number>>(new Set());
   const [currentUserMessageIndex, setCurrentUserMessageIndex] = useState(0);
   const [summaryExpanded, setSummaryExpanded] = useState(true);
   const userMessagesRef = useRef<HTMLDivElement[]>([]);
+  const hasLoadedOnceRef = useRef(false);
   const { showToast } = useToast();
   
   // Visibility filter state (thinking hidden by default, others visible)
@@ -37,10 +41,16 @@ export default function ChatDetailPage() {
   });
   
   const loadChat = useCallback(async () => {
-    setLoading(true);
+    const initialLoad = !hasLoadedOnceRef.current;
+    if (initialLoad) {
+      setLoading(true);
+    } else {
+      setLoadingMore(true);
+    }
     try {
-      const data = await fetchChat(chatId);
+      const data = await fetchChat(chatId, { messageLimit });
       setChat(data);
+      hasLoadedOnceRef.current = true;
     } catch (error) {
       console.error('Failed to load chat:', error);
       showToast({
@@ -49,9 +59,13 @@ export default function ChatDetailPage() {
         description: error instanceof Error ? error.message : 'Failed to load chat.',
       });
     } finally {
-      setLoading(false);
+      if (initialLoad) {
+        setLoading(false);
+      } else {
+        setLoadingMore(false);
+      }
     }
-  }, [chatId, showToast]);
+  }, [chatId, messageLimit, showToast]);
 
   useEffect(() => {
     loadChat();
@@ -141,7 +155,11 @@ export default function ChatDetailPage() {
   const copyChatToClipboard = async () => {
     if (!chat) return;
     try {
-      const text = formatChatAsMarkdown(chat);
+      const fullChat =
+        chat.total_messages && chat.messages.length < chat.total_messages
+          ? await fetchChat(chatId)
+          : chat;
+      const text = formatChatAsMarkdown(fullChat);
       const charCount = await copyToClipboard(text);
       showToast({
         variant: 'success',
@@ -161,7 +179,11 @@ export default function ChatDetailPage() {
   const copyChatAsJson = async () => {
     if (!chat) return;
     try {
-      const jsonStr = JSON.stringify(formatChatAsJsonObject(chat), null, 2);
+      const fullChat =
+        chat.total_messages && chat.messages.length < chat.total_messages
+          ? await fetchChat(chatId)
+          : chat;
+      const jsonStr = JSON.stringify(formatChatAsJsonObject(fullChat), null, 2);
       const charCount = await copyToClipboard(jsonStr);
       showToast({
         variant: 'success',
@@ -296,6 +318,12 @@ export default function ChatDetailPage() {
       </div>
     );
   }
+
+  const loadedMessageCount =
+    chat.pagination?.covered_end ??
+    chat.messages.length;
+  const totalMessageCount = chat.total_messages ?? chat.messages.length;
+  const canLoadMore = Boolean(chat.pagination?.has_more) || loadedMessageCount < totalMessageCount;
   
   return (
     <div className="relative">
@@ -321,6 +349,9 @@ export default function ChatDetailPage() {
                 Created: {formatDistanceToNow(new Date(chat.created_at), { addSuffix: true })}
               </span>
             )}
+            <span>
+              Showing {loadedMessageCount} of {totalMessageCount} messages
+            </span>
             {chat.workspace_path && (
               <span className="font-mono text-xs opacity-70">
                 {chat.workspace_path}
@@ -603,6 +634,18 @@ export default function ChatDetailPage() {
                 }
                 return null;
               })}
+            </div>
+          )}
+
+          {canLoadMore && (
+            <div className="mt-6 flex justify-center">
+              <button
+                onClick={() => setMessageLimit((current) => current + INITIAL_MESSAGE_LIMIT)}
+                disabled={loadingMore}
+                className="rounded-lg border border-border bg-muted px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted/80 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {loadingMore ? 'Loading more…' : `Load more messages (${loadedMessageCount}/${totalMessageCount})`}
+              </button>
             </div>
           )}
         </div>

@@ -155,7 +155,12 @@ class ChatRepository(BaseRepository):
 
         return chat_id
 
-    def get(self, chat_id: int) -> Optional[Dict[str, Any]]:
+    def get(
+        self,
+        chat_id: int,
+        message_offset: Optional[int] = None,
+        message_limit: Optional[int] = None,
+    ) -> Optional[Dict[str, Any]]:
         """
         Get a chat with all its messages.
 
@@ -163,6 +168,11 @@ class ChatRepository(BaseRepository):
         ----------
         chat_id : int
             Chat ID
+
+        message_offset : int, optional
+            Optional message pagination offset.
+        message_limit : int, optional
+            Optional message pagination limit.
 
         Returns
         -------
@@ -189,6 +199,8 @@ class ChatRepository(BaseRepository):
         if not row:
             return None
 
+        message_count = self._count_messages(chat_id)
+
         chat_data = {
             "id": row[0],
             "composer_id": row[1],
@@ -205,20 +217,34 @@ class ChatRepository(BaseRepository):
             "thinking_count": row[12] if len(row) > 12 else 0,
             "workspace_hash": row[13] if len(row) > 13 else None,
             "workspace_path": row[14] if len(row) > 14 else None,
+            "total_messages": message_count,
             "messages": [],
             "files": [],
         }
 
         # Get messages
-        cursor.execute(
-            """
-            SELECT role, text, rich_text, created_at, cursor_bubble_id, message_type, raw_json
-            FROM messages
-            WHERE chat_id = ?
-            ORDER BY created_at ASC
-        """,
-            (chat_id,),
-        )
+        if message_limit is None:
+            cursor.execute(
+                """
+                SELECT role, text, rich_text, created_at, cursor_bubble_id, message_type, raw_json
+                FROM messages
+                WHERE chat_id = ?
+                ORDER BY created_at ASC
+            """,
+                (chat_id,),
+            )
+        else:
+            offset = message_offset or 0
+            cursor.execute(
+                """
+                SELECT role, text, rich_text, created_at, cursor_bubble_id, message_type, raw_json
+                FROM messages
+                WHERE chat_id = ?
+                ORDER BY created_at ASC
+                LIMIT ? OFFSET ?
+            """,
+                (chat_id, message_limit, offset),
+            )
 
         for msg_row in cursor.fetchall():
             raw_json_data = None
@@ -251,6 +277,19 @@ class ChatRepository(BaseRepository):
         chat_data["tags"] = [row[0] for row in cursor.fetchall()]
 
         return chat_data
+
+    def _count_messages(self, chat_id: int) -> int:
+        """Count messages for a chat."""
+        cursor = self.cursor()
+        cursor.execute(
+            """
+            SELECT COUNT(*)
+            FROM messages
+            WHERE chat_id = ?
+            """,
+            (chat_id,),
+        )
+        return cursor.fetchone()[0]
 
     def get_bulk(self, chat_ids: List[int]) -> List[Dict[str, Any]]:
         """

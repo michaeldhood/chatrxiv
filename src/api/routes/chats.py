@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 logger = logging.getLogger(__name__)
 
 from src.api.deps import get_db
+from src.api.routes.chat_processing import select_processed_window
 from src.api.schemas import (
     BulkChatsRequest,
     BulkChatsResponse,
@@ -654,7 +655,12 @@ def get_chats_bulk(
 
 
 @router.get("/chats/{chat_id}", response_model=ChatDetail)
-def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
+def get_chat(
+    chat_id: int,
+    message_offset: int = Query(0, ge=0),
+    message_limit: Optional[int] = Query(None, ge=1, le=200),
+    db: ChatDatabase = Depends(get_db),
+):
     """
     Get a specific chat by ID with all messages.
 
@@ -671,6 +677,10 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
 
+    total_messages = chat.get("total_messages")
+    if total_messages is None:
+        total_messages = len(chat.get("messages", []))
+
     # Get plans linked to this chat
     plans_data = db.get_plans_for_chat(chat_id)
     chat["plans"] = [PlanInfo(**plan) for plan in plans_data]
@@ -686,12 +696,17 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
     # Frontend expects this for collapsible tool call groups with filtering
     processed_messages = []
     tool_call_group = []
-    tool_call_group_index = -1  # Track index for inserting plan indicators
+    tool_call_group_start: Optional[int] = None
+    tool_call_group_end: Optional[int] = None
     pending_plan_content = None  # Track plan content to insert after tool call group
     pending_terminal_commands = []  # Track terminal commands to insert after tool call group
     pending_terminal_by_tool_use_id = {}  # Claude Code tool_use_id -> terminal command
 
-    for msg in chat.get("messages", []):
+    def append_processed_item(item: Dict[str, Any], start: int, end: int) -> None:
+        item["source_span"] = {"start": start, "end": end}
+        processed_messages.append(item)
+
+    for raw_index, msg in enumerate(chat.get("messages", [])):
         msg_type = msg.get("message_type", "response")
 
         # Skip empty messages
@@ -720,6 +735,8 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
 
             for terminal_command in terminal_commands:
                 tool_use_id = terminal_command.get("tool_use_id")
+                terminal_command["_span_start"] = raw_index
+                terminal_command["_span_end"] = raw_index + 1
                 if tool_use_id:
                     pending_terminal_by_tool_use_id[tool_use_id] = terminal_command
                 else:
@@ -736,6 +753,7 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
                     matched = pending_terminal_by_tool_use_id.pop(tool_use_id)
                     matched["output"] = terminal_result.get("output", matched.get("output", ""))
                     matched["status"] = terminal_result.get("status") or matched.get("status")
+                    matched["_span_end"] = raw_index + 1
                     pending_terminal_commands.append(matched)
                     continue
 
@@ -748,6 +766,8 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
                             "status": terminal_result.get("status"),
                             "created_at": created_at,
                             "tool_use_id": tool_use_id,
+                            "_span_start": raw_index,
+                            "_span_end": raw_index + 1,
                         }
                     )
 
@@ -760,6 +780,9 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
             if tool_result:
                 msg["tool_result"] = tool_result
 
+            if tool_call_group_start is None:
+                tool_call_group_start = raw_index
+            tool_call_group_end = raw_index + 1
             tool_call_group.append(msg)
         else:
             # Flush pending terminal commands even if there is no tool_call_group
@@ -769,33 +792,43 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
             if pending_terminal_commands and not tool_call_group:
                 for terminal_cmd in pending_terminal_commands:
                     terminal_cmd.pop("tool_use_id", None)
-                    processed_messages.append(
+                    span_start = terminal_cmd.pop("_span_start", raw_index)
+                    span_end = terminal_cmd.pop("_span_end", span_start + 1)
+                    append_processed_item(
                         {
                             "type": "terminal_command",
                             "terminal_command": terminal_cmd,
-                        }
+                        },
+                        span_start,
+                        span_end,
                     )
                 pending_terminal_commands = []
 
             # If we have accumulated tool calls, add them as a group
             if tool_call_group:
                 content_types, summary = build_tool_group_summary(tool_call_group)
-                processed_messages.append(
+                group_start = tool_call_group_start or raw_index
+                group_end = tool_call_group_end or (group_start + 1)
+                append_processed_item(
                     {
                         "type": "tool_call_group",
                         "tool_calls": tool_call_group.copy(),
                         "content_types": content_types,
                         "summary": summary,
-                    }
+                    },
+                    group_start,
+                    group_end,
                 )
 
                 # Insert plan content right after the tool call group if we have one
                 if pending_plan_content:
-                    processed_messages.append(
+                    append_processed_item(
                         {
                             "type": "plan_content",
                             "plan": pending_plan_content,
-                        }
+                        },
+                        group_start,
+                        group_end,
                     )
                     pending_plan_content = None
 
@@ -810,11 +843,15 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
                     )
                 for terminal_cmd in pending_terminal_commands:
                     terminal_cmd.pop("tool_use_id", None)
-                    processed_messages.append(
+                    span_start = terminal_cmd.pop("_span_start", group_start)
+                    span_end = terminal_cmd.pop("_span_end", group_end)
+                    append_processed_item(
                         {
                             "type": "terminal_command",
                             "terminal_command": terminal_cmd,
-                        }
+                        },
+                        span_start,
+                        span_end,
                     )
                 pending_terminal_commands = []
 
@@ -845,7 +882,7 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
                                     or file_path.endswith(plan_file_path)
                                 ):
                                     # Insert plan creation indicator after this tool group
-                                    processed_messages.append(
+                                    append_processed_item(
                                         {
                                             "type": "plan_created",
                                             "plan": {
@@ -857,40 +894,50 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
                                                     "created_at"
                                                 ),
                                             },
-                                        }
+                                        },
+                                        group_start,
+                                        group_end,
                                     )
                                     # Remove from map to avoid duplicate indicators
                                     del plans_by_file_path[plan_file_path]
                                     break
 
                 tool_call_group = []
+                tool_call_group_start = None
+                tool_call_group_end = None
 
             # Check if this is a thinking message
             if msg_type == "thinking":
                 msg["is_thinking"] = True
 
             # Add the current message
-            processed_messages.append({"type": "message", "data": msg})
+            append_processed_item({"type": "message", "data": msg}, raw_index, raw_index + 1)
 
     # Don't forget remaining tool calls
     if tool_call_group:
         content_types, summary = build_tool_group_summary(tool_call_group)
-        processed_messages.append(
+        group_start = tool_call_group_start or 0
+        group_end = tool_call_group_end or (group_start + 1)
+        append_processed_item(
             {
                 "type": "tool_call_group",
                 "tool_calls": tool_call_group,
                 "content_types": content_types,
                 "summary": summary,
-            }
+            },
+            group_start,
+            group_end,
         )
 
         # Insert plan content right after the final tool call group if we have one
         if pending_plan_content:
-            processed_messages.append(
+            append_processed_item(
                 {
                     "type": "plan_content",
                     "plan": pending_plan_content,
-                }
+                },
+                group_start,
+                group_end,
             )
             pending_plan_content = None
 
@@ -905,11 +952,15 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
             )
         for terminal_cmd in pending_terminal_commands:
             terminal_cmd.pop("tool_use_id", None)
-            processed_messages.append(
+            span_start = terminal_cmd.pop("_span_start", group_start)
+            span_end = terminal_cmd.pop("_span_end", group_end)
+            append_processed_item(
                 {
                     "type": "terminal_command",
                     "terminal_command": terminal_cmd,
-                }
+                },
+                span_start,
+                span_end,
             )
         pending_terminal_commands = []
 
@@ -935,7 +986,7 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
                             or plan_file_path.endswith(file_path)
                             or file_path.endswith(plan_file_path)
                         ):
-                            processed_messages.append(
+                            append_processed_item(
                                 {
                                     "type": "plan_created",
                                     "plan": {
@@ -945,7 +996,9 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
                                         "file_path": plan_info.get("file_path"),
                                         "created_at": plan_info.get("created_at"),
                                     },
-                                }
+                                },
+                                group_start,
+                                group_end,
                             )
                             del plans_by_file_path[plan_file_path]
                             break
@@ -957,39 +1010,68 @@ def get_chat(chat_id: int, db: ChatDatabase = Depends(get_db)):
     if pending_terminal_commands:
         for terminal_cmd in pending_terminal_commands:
             terminal_cmd.pop("tool_use_id", None)
-            processed_messages.append(
+            span_start = terminal_cmd.pop("_span_start", 0)
+            span_end = terminal_cmd.pop("_span_end", span_start + 1)
+            append_processed_item(
                 {
                     "type": "terminal_command",
                     "terminal_command": terminal_cmd,
-                }
+                },
+                span_start,
+                span_end,
             )
         pending_terminal_commands = []
 
     # If any plans weren't matched to tool calls, add indicators after first message as fallback
     if plans_by_file_path and processed_messages:
+        first_span = processed_messages[0].get("source_span", {"start": 0, "end": 1})
         for plan_info in plans_by_file_path.values():
             # Insert after first message
+            fallback_item = {
+                "type": "plan_created",
+                "plan": {
+                    "id": plan_info["id"],
+                    "plan_id": plan_info["plan_id"],
+                    "name": plan_info["name"],
+                    "file_path": plan_info.get("file_path"),
+                    "created_at": plan_info.get("created_at"),
+                },
+                "source_span": first_span,
+            }
             processed_messages.insert(
                 1,
-                {
-                    "type": "plan_created",
-                    "plan": {
-                        "id": plan_info["id"],
-                        "plan_id": plan_info["plan_id"],
-                        "name": plan_info["name"],
-                        "file_path": plan_info.get("file_path"),
-                        "created_at": plan_info.get("created_at"),
-                    },
-                },
+                fallback_item,
             )
 
-    chat["processed_messages"] = processed_messages
+    chat["total_messages"] = total_messages
+
+    if message_limit is not None:
+        selected_processed, coverage = select_processed_window(
+            processed_messages,
+            message_offset,
+            message_limit,
+        )
+        covered_start = coverage["covered_start"]
+        covered_end = coverage["covered_end"]
+        chat["messages"] = chat.get("messages", [])[covered_start:covered_end]
+        chat["processed_messages"] = selected_processed
+        chat["pagination"] = {
+            "requested_offset": message_offset,
+            "requested_limit": message_limit,
+            "covered_start": covered_start,
+            "covered_end": covered_end,
+            "has_previous": covered_start > 0,
+            "has_more": covered_end < total_messages,
+        }
+    else:
+        chat["processed_messages"] = processed_messages
 
     # Log summary of processed messages
-    terminal_count = sum(1 for m in processed_messages if m.get("type") == "terminal_command")
-    tool_group_count = sum(1 for m in processed_messages if m.get("type") == "tool_call_group")
+    processed_for_log = chat["processed_messages"]
+    terminal_count = sum(1 for m in processed_for_log if m.get("type") == "terminal_command")
+    tool_group_count = sum(1 for m in processed_for_log if m.get("type") == "tool_call_group")
     logger.debug(
-        f"get_chat: processed {len(processed_messages)} messages total: "
+        f"get_chat: processed {len(processed_for_log)} messages total: "
         f"{terminal_count} terminal_command items, {tool_group_count} tool_call_groups"
     )
 

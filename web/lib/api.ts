@@ -150,6 +150,15 @@ export interface ChatDetail extends ChatSummary {
   plans: PlanInfo[];
   messages: Message[];
   processed_messages?: ProcessedMessage[];
+  total_messages?: number | null;
+  pagination?: {
+    requested_offset: number;
+    requested_limit: number;
+    covered_start: number;
+    covered_end: number;
+    has_previous: boolean;
+    has_more: boolean;
+  } | null;
 }
 
 export interface SearchResult extends ChatSummary {
@@ -357,8 +366,26 @@ export async function fetchChats(
 /**
  * Fetch a single chat by ID with all messages.
  */
-export async function fetchChat(id: number): Promise<ChatDetail> {
-  const res = await fetchWithRetry(`${API_BASE}/api/chats/${id}`);
+export async function fetchChat(
+  id: number,
+  options?: {
+    messageOffset?: number;
+    messageLimit?: number;
+  }
+): Promise<ChatDetail> {
+  const params = new URLSearchParams();
+  if (options?.messageOffset !== undefined) {
+    params.set("message_offset", String(options.messageOffset));
+  }
+  if (options?.messageLimit !== undefined) {
+    params.set("message_limit", String(options.messageLimit));
+  }
+
+  const url = params.size > 0
+    ? `${API_BASE}/api/chats/${id}?${params.toString()}`
+    : `${API_BASE}/api/chats/${id}`;
+
+  const res = await fetchWithRetry(url);
   if (!res.ok) {
     if (res.status === 404) {
       throw new Error(`Chat ${id} not found`);

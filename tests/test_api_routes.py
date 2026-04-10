@@ -49,6 +49,40 @@ def test_get_chat_returns_chat_detail(api_client):
     assert payload["processed_messages"]
 
 
+def test_get_chat_supports_message_limit(api_client):
+    response = api_client.get("/api/chats/1", params={"message_limit": 1})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total_messages"] == 2
+    assert payload["pagination"]["requested_offset"] == 0
+    assert payload["pagination"]["requested_limit"] == 1
+    assert payload["pagination"]["covered_start"] == 0
+    assert payload["pagination"]["covered_end"] == 1
+    assert payload["pagination"]["has_more"] is True
+    assert len(payload["messages"]) == 1
+    assert payload["messages"][0]["role"] == "user"
+
+
+def test_get_chat_supports_message_offset(api_client):
+    response = api_client.get(
+        "/api/chats/1",
+        params={"message_offset": 1, "message_limit": 1},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total_messages"] == 2
+    assert payload["pagination"]["requested_offset"] == 1
+    assert payload["pagination"]["requested_limit"] == 1
+    assert payload["pagination"]["covered_start"] == 1
+    assert payload["pagination"]["covered_end"] == 2
+    assert payload["pagination"]["has_previous"] is True
+    assert payload["pagination"]["has_more"] is False
+    assert len(payload["messages"]) == 1
+    assert payload["messages"][0]["role"] == "assistant"
+
+
 def test_get_chat_returns_404_for_missing_chat(api_client):
     response = api_client.get("/api/chats/999")
 
