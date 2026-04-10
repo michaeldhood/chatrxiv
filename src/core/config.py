@@ -115,3 +115,19 @@ def get_default_db_path() -> Path:
     base_dir.mkdir(parents=True, exist_ok=True)
     return base_dir / "chats.db"
 
+
+def get_default_raw_db_path() -> Path:
+    """
+    Get the default raw database path.
+
+    Returns
+    ----
+    Path
+        Default path to raw.db, overrideable with CHATRXIV_RAW_DB_PATH
+    """
+    raw_db_path = os.getenv("CHATRXIV_RAW_DB_PATH")
+    if raw_db_path:
+        return Path(raw_db_path).expanduser()
+
+    return get_default_db_path().parent / "raw.db"
+

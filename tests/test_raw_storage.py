@@ -274,3 +274,15 @@ def test_checksum_consistency(temp_storage):
     
     assert checksum1 == checksum2
     assert row_id1 == row_id2
+
+
+def test_raw_storage_uses_env_path_when_not_explicit(tmp_path, monkeypatch):
+    """RawStorage should honor CHATRXIV_RAW_DB_PATH when no path is passed."""
+    raw_db_path = tmp_path / "custom-raw.db"
+    monkeypatch.setenv("CHATRXIV_RAW_DB_PATH", str(raw_db_path))
+
+    storage = RawStorage()
+    try:
+        assert storage.db_path == raw_db_path
+    finally:
+        storage.close()

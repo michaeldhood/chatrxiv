@@ -25,12 +25,13 @@ maintenance strategies.
 import hashlib
 import json
 import logging
+import os
 import sqlite3
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional
 
-from src.core.config import get_default_db_path
+from src.core.config import get_default_db_path, get_default_raw_db_path
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +102,7 @@ class RawStorage:
             (same directory as chats.db but named raw.db)
         """
         if db_path is None:
-            db_path = get_default_db_path().parent / "raw.db"
+            db_path = os.getenv("CHATRXIV_RAW_DB_PATH") or get_default_raw_db_path()
 
         self.db_path = Path(db_path)
         self._conn: Optional[sqlite3.Connection] = None
