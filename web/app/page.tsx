@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { Suspense, useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { fetchChats, fetchChatsBulk, type ChatSummary } from '@/lib/api';
@@ -13,7 +13,7 @@ import {
 
 type CopyStatus = 'idle' | 'loading' | 'success' | 'error';
 
-export default function HomePage() {
+function HomePageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const [chats, setChats] = useState<ChatSummary[]>([]);
@@ -499,5 +499,19 @@ export default function HomePage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function HomePage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="p-12 text-center text-muted-foreground">
+          Loading chats...
+        </div>
+      }
+    >
+      <HomePageContent />
+    </Suspense>
   );
 }

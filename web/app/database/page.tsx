@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from 'react';
+import { Suspense, useState, useEffect, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { fetchChats, fetchFilterOptions, type ChatSummary, type FilterOption } from '@/lib/api';
@@ -9,7 +9,7 @@ import { useSSE } from '@/lib/hooks/use-sse';
 type SortField = 'title' | 'mode' | 'source' | 'messages' | 'created_at';
 type SortOrder = 'asc' | 'desc';
 
-export default function DatabasePage() {
+function DatabasePageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const [chats, setChats] = useState<ChatSummary[]>([]);
@@ -40,7 +40,8 @@ export default function DatabasePage() {
       
       // Sort
       filtered.sort((a, b) => {
-        let aVal: any, bVal: any;
+        let aVal: string | number;
+        let bVal: string | number;
         switch (sortBy) {
           case 'title':
             aVal = a.title || '';
@@ -407,5 +408,13 @@ export default function DatabasePage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function DatabasePage() {
+  return (
+    <Suspense fallback={<div className="p-12 text-center text-muted-foreground">Loading database view...</div>}>
+      <DatabasePageContent />
+    </Suspense>
   );
 }

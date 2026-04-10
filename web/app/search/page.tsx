@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useEffect, useCallback } from 'react';
+import { Suspense, useState, useEffect, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { searchWithFacets, type SearchResult, type SearchFacetsResponse } from '@/lib/api';
 
-export default function SearchPage() {
+function SearchPageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const query = searchParams.get('q') || '';
@@ -360,5 +360,13 @@ export default function SearchPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function SearchPage() {
+  return (
+    <Suspense fallback={<div className="p-12 text-center text-muted-foreground">Loading search…</div>}>
+      <SearchPageContent />
+    </Suspense>
   );
 }

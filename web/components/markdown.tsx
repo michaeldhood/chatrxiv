@@ -18,8 +18,14 @@ interface MarkdownProps {
 export function Markdown({ content, className = '' }: MarkdownProps) {
   const components: Components = {
           // Custom styling for code blocks
-          code: ({ inline, className, children, ...props }) => {
-            if (inline) {
+          code: ({ className, children, ...props }) => {
+            const textContent = String(children);
+            const isInlineCode =
+              !className?.includes('language-') &&
+              !className?.includes('hljs') &&
+              !textContent.includes('\n');
+
+            if (isInlineCode) {
               return (
                 <code
                   className="bg-muted px-[6px] py-[2px] rounded text-accent-orange font-mono text-sm"
