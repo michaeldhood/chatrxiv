@@ -59,6 +59,12 @@ export default function RootLayout({
                   >
                     Activity & Cost
                   </Link>
+                <Link
+                  href="/settings"
+                  className="text-primary hover:text-primary/80 font-medium text-sm transition-colors"
+                >
+                  Settings
+                </Link>
                 </nav>
                 <SearchBar />
               </header>

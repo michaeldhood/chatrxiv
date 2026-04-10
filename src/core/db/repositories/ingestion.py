@@ -53,6 +53,38 @@ class IngestionStateRepository(BaseRepository):
             "stats_errors": row[5] or 0,
         }
 
+    def list_all(self) -> List[Dict[str, Any]]:
+        """
+        List ingestion state rows for all sources.
+
+        Returns
+        -------
+        List[Dict[str, Any]]
+            Ingestion state rows ordered by source name
+        """
+        cursor = self.cursor()
+        cursor.execute(
+            """
+            SELECT source, last_run_at, last_processed_timestamp, last_composer_id,
+                   stats_ingested, stats_skipped, stats_errors
+            FROM ingestion_state
+            ORDER BY source
+            """
+        )
+
+        return [
+            {
+                "source": row[0],
+                "last_run_at": row[1],
+                "last_processed_timestamp": row[2],
+                "last_composer_id": row[3],
+                "stats_ingested": row[4] or 0,
+                "stats_skipped": row[5] or 0,
+                "stats_errors": row[6] or 0,
+            }
+            for row in cursor.fetchall()
+        ]
+
     def update_state(
         self,
         source: str,

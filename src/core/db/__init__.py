@@ -18,6 +18,7 @@ from .repositories.tag import TagRepository
 from .repositories.plan import PlanRepository
 from .repositories.activity import ActivityRepository
 from .repositories.ingestion import IngestionStateRepository
+from .repositories.settings import SettingsRepository
 from .search.fts import FTSManager
 from .search.instant import instant_search
 from .search.filtered import search_filtered, get_tag_facets, get_workspace_facets
@@ -64,6 +65,7 @@ class Database:
         self.plans = PlanRepository(self.conn)
         self.activity = ActivityRepository(self.conn)
         self.ingestion = IngestionStateRepository(self.conn)
+        self.settings = SettingsRepository(self.conn)
 
     def close(self):
         """Close the database connection."""
@@ -283,6 +285,36 @@ class Database:
         """Delegate to IngestionStateRepository.get_chats_updated_since()."""
         return self.ingestion.get_chats_updated_since(timestamp, source)
 
+    def list_ingestion_states(self) -> List[Dict[str, Any]]:
+        """Delegate to IngestionStateRepository.list_all()."""
+        return self.ingestion.list_all()
+
+    # --- Settings methods ---
+    def get_setting(self, key: str) -> Optional[Any]:
+        """Delegate to SettingsRepository.get()."""
+        return self.settings.get(key)
+
+    def set_setting(self, key: str, value: Any) -> None:
+        """Delegate to SettingsRepository.set()."""
+        self.settings.set(key, value)
+
+    def get_all_settings(self) -> Dict[str, Any]:
+        """Delegate to SettingsRepository.get_all()."""
+        return self.settings.get_all()
+
+    # --- Settings methods ---
+    def get_setting(self, key: str) -> Optional[str]:
+        """Delegate to SettingsRepository.get()."""
+        return self.settings.get(key)
+
+    def set_setting(self, key: str, value: Any) -> None:
+        """Delegate to SettingsRepository.set()."""
+        self.settings.set(key, value)
+
+    def get_all_settings(self) -> Dict[str, str]:
+        """Delegate to SettingsRepository.get_all()."""
+        return self.settings.get_all()
+
     # --- Search methods ---
     def search_chats(
         self, query: str, limit: int = 50, offset: int = 0
@@ -450,6 +482,7 @@ __all__ = [
     "PlanRepository",
     "ActivityRepository",
     "IngestionStateRepository",
+    "SettingsRepository",
     # Search
     "FTSManager",
     "instant_search",

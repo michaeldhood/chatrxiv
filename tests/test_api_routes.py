@@ -150,6 +150,46 @@ def test_filter_options_returns_sources_and_modes(api_client):
     assert {source["value"] for source in payload["sources"]} >= {"cursor", "legacy"}
 
 
+def test_settings_returns_database_runtime_and_sources(api_client):
+    response = api_client.get("/api/settings")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["database"]["chats_db_path"].endswith(".db")
+    assert payload["database"]["raw_db_path"].endswith("raw.db")
+    assert payload["runtime"]["watch_enabled"] is False
+    assert isinstance(payload["settings"], list)
+    assert {entry["key"] for entry in payload["settings"]} >= {
+        "source.cursor.workspace_storage_path",
+        "source.claude_code.projects_path",
+        "source.claude.export_path",
+        "source.chatgpt.export_path",
+    }
+    assert len(payload["ingestion"]) == 4
+    assert {row["source"] for row in payload["ingestion"]} == {
+        "cursor",
+        "claude.ai",
+        "chatgpt",
+        "claude-code",
+    }
+
+
+def test_post_ingest_accepts_background_job(api_client):
+    response = api_client.post(
+        "/api/ingest",
+        json={"mode": "incremental", "sources": ["cursor", "claude-code"]},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload == {
+        "accepted": True,
+        "message": "Ingestion started in background",
+        "mode": "incremental",
+        "sources": ["cursor", "claude-code"],
+    }
+
+
 def test_health_returns_ready_status_and_request_id(api_client):
     response = api_client.get("/api/health")
 

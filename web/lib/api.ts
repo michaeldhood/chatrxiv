@@ -249,6 +249,58 @@ export interface DailyActivityAggregate {
   activity_count: number;
 }
 
+export interface IngestionSourceInfo {
+  source: string;
+  last_run_at?: string | null;
+  last_processed_timestamp?: string | null;
+  last_composer_id?: string | null;
+  stats_ingested: number;
+  stats_skipped: number;
+  stats_errors: number;
+}
+
+export interface ManualIngestStatus {
+  running: boolean;
+  started_at?: string | null;
+  finished_at?: string | null;
+  last_error?: string | null;
+  last_stats: Record<string, Record<string, number>>;
+}
+
+export interface RuntimeSettingsInfo {
+  watch_enabled: boolean;
+  initial_ingestion_complete: boolean;
+  manual_ingest: ManualIngestStatus;
+}
+
+export interface DatabaseInfo {
+  chats_db_path: string;
+  chats_db_size_bytes?: number | null;
+  raw_db_path: string;
+  raw_db_size_bytes?: number | null;
+}
+
+export interface SettingsEntry {
+  key: string;
+  value: unknown;
+}
+
+export interface SettingsResponse {
+  settings: SettingsEntry[];
+  database: DatabaseInfo;
+  ingestion: IngestionSourceInfo[];
+  runtime: RuntimeSettingsInfo;
+}
+
+export interface IngestResponse {
+  accepted: boolean;
+  message: string;
+  sources: string[];
+  mode: "incremental" | "full";
+}
+
+export type IngestMode = "incremental" | "full";
+
 /**
  * Fetch available filter options (sources, modes) with counts.
  */
@@ -485,5 +537,40 @@ export async function fetchDailyActivity(
       await getResponseErrorMessage(res, `Failed to fetch daily activity: ${res.statusText}`)
     );
   }
+  return res.json();
+}
+
+/**
+ * Fetch persisted settings plus runtime ingestion information.
+ */
+export async function fetchSettings(): Promise<SettingsResponse> {
+  const res = await fetchWithRetry(`${API_BASE}/api/settings`);
+  if (!res.ok) {
+    throw new Error(
+      await getResponseErrorMessage(res, `Failed to fetch settings: ${res.statusText}`)
+    );
+  }
+  return res.json();
+}
+
+/**
+ * Trigger background ingestion for selected sources.
+ */
+export async function postIngest(body: {
+  mode: IngestMode;
+  sources: string[];
+}): Promise<IngestResponse> {
+  const res = await fetchWithRetry(`${API_BASE}/api/ingest`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    throw new Error(
+      await getResponseErrorMessage(res, `Failed to trigger ingestion: ${res.statusText}`)
+    );
+  }
+
   return res.json();
 }

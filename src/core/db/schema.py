@@ -52,6 +52,7 @@ class SchemaManager:
         self._create_chat_plans_table(cursor)
         self._create_cursor_activity_table(cursor)
         self._create_ingestion_state_table(cursor)
+        self._create_app_settings_table(cursor)
 
         # Apply migrations
         self._migrate_chats_table(cursor)
@@ -211,6 +212,16 @@ class SchemaManager:
                 stats_ingested INTEGER DEFAULT 0,
                 stats_skipped INTEGER DEFAULT 0,
                 stats_errors INTEGER DEFAULT 0
+            )
+        """)
+
+    def _create_app_settings_table(self, cursor) -> None:
+        """Create app_settings table for persistent key/value configuration."""
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS app_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
         """)
 

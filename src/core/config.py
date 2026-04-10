@@ -91,6 +91,30 @@ def get_claude_code_projects_path() -> Path:
     return Path.home() / ".claude" / "projects"
 
 
+def get_default_chatgpt_export_path() -> Path:
+    """
+    Get the default ChatGPT export path.
+
+    Returns
+    ----
+    Path
+        Default path where a user might keep ChatGPT exports.
+    """
+    return Path.home() / "Downloads" / "chatgpt-export"
+
+
+def get_default_claude_export_path() -> Path:
+    """
+    Get the default Claude export path.
+
+    Returns
+    ----
+    Path
+        Default path where a user might keep Claude exports.
+    """
+    return Path.home() / "Downloads" / "claude-export"
+
+
 def get_default_db_path() -> Path:
     """
     Get the default database path based on OS.

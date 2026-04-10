@@ -242,3 +242,74 @@ class ErrorResponse(BaseModel):
     """Standard API error envelope for unexpected server failures."""
 
     error: ErrorInfo
+
+
+class SettingsEntry(BaseModel):
+    """Persisted application setting."""
+
+    key: str
+    value: Any
+
+
+class IngestRequest(BaseModel):
+    """Request body for manually triggering ingestion."""
+
+    mode: str = Field(default="incremental", pattern="^(incremental|full)$")
+    sources: List[str] = Field(default_factory=lambda: ["cursor", "claude-code"])
+
+
+class DatabaseInfo(BaseModel):
+    """Resolved database path and size information."""
+
+    chats_db_path: str
+    chats_db_size_bytes: Optional[int] = None
+    raw_db_path: str
+    raw_db_size_bytes: Optional[int] = None
+
+
+class IngestionStateInfo(BaseModel):
+    """Stored ingestion state for a source."""
+
+    source: str
+    last_run_at: Optional[str] = None
+    last_processed_timestamp: Optional[str] = None
+    last_composer_id: Optional[str] = None
+    stats_ingested: int = 0
+    stats_skipped: int = 0
+    stats_errors: int = 0
+
+
+class ManualIngestStatus(BaseModel):
+    """Current or recent manual ingest job state."""
+
+    running: bool = False
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    last_error: Optional[str] = None
+    last_stats: Dict[str, Dict[str, int]] = Field(default_factory=dict)
+
+
+class RuntimeSettingsInfo(BaseModel):
+    """Non-persisted runtime settings and background state."""
+
+    watch_enabled: bool
+    initial_ingestion_complete: bool
+    manual_ingest: ManualIngestStatus
+
+
+class SettingsResponse(BaseModel):
+    """Response payload for /api/settings."""
+
+    settings: List[SettingsEntry] = Field(default_factory=list)
+    database: DatabaseInfo
+    ingestion: List[IngestionStateInfo] = Field(default_factory=list)
+    runtime: RuntimeSettingsInfo
+
+
+class IngestResponse(BaseModel):
+    """Response for accepted manual ingestion jobs."""
+
+    accepted: bool = True
+    message: str
+    mode: str
+    sources: List[str] = Field(default_factory=list)
