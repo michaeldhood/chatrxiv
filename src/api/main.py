@@ -16,7 +16,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from src.api.schemas import ErrorDetail, ErrorResponse
+from src.api.schemas import ErrorInfo, ErrorResponse
 from src.api.routes import activity, chats, health, search, stream
 
 logger = logging.getLogger(__name__)
@@ -176,7 +176,7 @@ async def handle_unexpected_exception(request: Request, exc: Exception):
     return JSONResponse(
         status_code=500,
         content=ErrorResponse(
-            error=ErrorDetail(
+            error=ErrorInfo(
                 code="INTERNAL_ERROR",
                 message="An unexpected error occurred",
                 request_id=request_id,
